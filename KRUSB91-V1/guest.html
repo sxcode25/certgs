@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="description" content="ค้นหาและดาวน์โหลดเกียรติบัตร">
+  <title>ค้นหาเกียรติบัตร</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1D4ED8;
+      --primary-light: #3B82F6;
+      --primary-dark: #1E40AF;
+      --accent: #F59E0B;
+      --bg: #F0F4FF;
+      --bg-card: #FFFFFF;
+      --text: #1E293B;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 4px 24px rgba(29, 78, 216, 0.08);
+      --shadow-lg: 0 8px 40px rgba(29, 78, 216, 0.12);
+      --font-ui: 'Sarabun', sans-serif;
+      --font-heading: 'Kanit', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ═══════ HEADER ═══════ */
+    .guest-header {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
+      color: #FFFFFF;
+      text-align: center;
+      padding: 48px 24px 56px;
+      position: relative;
+      overflow: hidden;
+    }
+    .guest-header::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 60%);
+      animation: headerPulse 6s ease-in-out infinite;
+    }
+    @keyframes headerPulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.1); opacity: 1; }
+    }
+    .guest-header h1 {
+      font-family: var(--font-heading);
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .guest-header p {
+      font-size: 1rem;
+      opacity: 0.85;
+      position: relative;
+    }
+    .guest-header .icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      display: block;
+      position: relative;
+    }
+
+    /* ═══════ SEARCH CARD ═══════ */
+    .search-card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      padding: 32px;
+      width: 100%;
+      max-width: 640px;
+      margin: -32px auto 24px;
+      position: relative;
+      z-index: 10;
+    }
+    .search-label {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 8px;
+      display: block;
+      color: var(--text);
+    }
+    .search-input {
+      width: 100%;
+      padding: 14px 18px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 16px;
+      font-family: var(--font-ui);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+    }
+    .search-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+      align-items: end;
+    }
+    .search-row .form-group {
+      flex: 1;
+    }
+    .search-row .form-group label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+    .search-select {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-family: var(--font-ui);
+      background: #FFF;
+      outline: none;
+      cursor: pointer;
+    }
+    .search-select:focus { border-color: var(--primary); }
+
+    .btn-search {
+      padding: 14px 32px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-light));
+      color: #FFF;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 16px;
+      font-weight: 600;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-search:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(29, 78, 216, 0.3);
+    }
+    .btn-search:active { transform: translateY(0); }
+    .btn-search:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ═══════ RESULTS ═══════ */
+    .results-area {
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 0 16px 40px;
+    }
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .results-header h2 {
+      font-family: var(--font-heading);
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+    .results-count {
+      background: var(--primary);
+      color: #FFF;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ═══════ CERT CARD ═══════ */
+    .cert-card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      border-left: 4px solid var(--primary);
+    }
+    .cert-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg);
+    }
+    .cert-name {
+      font-family: var(--font-heading);
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--primary-dark);
+      margin-bottom: 8px;
+    }
+    .cert-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .cert-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      background: #EFF6FF;
+      color: var(--primary);
+    }
+    .cert-badge.tpl {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+    .cert-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-cert {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-download {
+      background: linear-gradient(135deg, #059669, #10B981);
+      color: #FFF;
+    }
+    .btn-download:hover { box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3); }
+    .btn-view {
+      background: #F1F5F9;
+      color: var(--text);
+    }
+    .btn-view:hover { background: #E2E8F0; }
+
+    /* ═══════ STATES ═══════ */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 15px; }
+
+    .loading-state {
+      text-align: center;
+      padding: 40px;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast-guest {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #EF4444;
+      color: #FFF;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 9999;
+    }
+    .toast-guest.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ═══════ FOOTER ═══════ */
+    .guest-footer {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-top: auto;
+    }
+
+    /* ═══════ RESPONSIVE ═══════ */
+    @media (max-width: 600px) {
+      .guest-header { padding: 32px 16px 48px; }
+      .guest-header h1 { font-size: 1.5rem; }
+      .search-card { margin: -24px 12px 16px; padding: 20px; }
+      .search-row { flex-direction: column; }
+      .cert-actions { flex-direction: column; }
+      .btn-cert { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="guest-header">
+    <span class="icon">🏆</span>
+    <h1>ค้นหาเกียรติบัตร</h1>
+    <p>พิมพ์ชื่อ-นามสกุล เพื่อค้นหาและดาวน์โหลดเกียรติบัตรของคุณ</p>
+  </header>
+
+  <!-- SEARCH -->
+  <div class="search-card">
+    <label class="search-label" for="searchName">🔍 ชื่อ-นามสกุล</label>
+    <input type="text" id="searchName" class="search-input" placeholder="พิมพ์ชื่อ-นามสกุล เช่น สมชาย" autocomplete="off"
+      onkeydown="if(event.key==='Enter') doSearch()">
+
+    <div class="search-row">
+      <div class="form-group">
+        <label for="searchTemplate">ค้นหาจาก</label>
+        <select id="searchTemplate" class="search-select">
+          <option value="all">🔍 ค้นหาทั้งหมด</option>
+        </select>
+      </div>
+      <button class="btn-search" id="btnSearch" onclick="doSearch()">🔍 ค้นหา</button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="results-area" id="resultsArea" style="display:none;"></div>
+
+  <!-- TOAST -->
+  <div class="toast-guest" id="guestToast"></div>
+
+  <!-- FOOTER -->
+  <footer class="guest-footer">
+    🏆 ระบบสร้างเกียรติบัตรอัตโนมัติ — KRUSB85
+  </footer>
+
+<script>
+  var GUEST_API = '/api';
+
+  // ═══════ INIT: โหลด Template List ═══════
+  (function() {
+    fetch(GUEST_API + '?action=publicTemplates')
+      .then(function(r) { return r.json(); })
+      .then(function(result) {
+        if (result && result.status && result.templates && result.templates.length > 0) {
+          var sel = document.getElementById('searchTemplate');
+          result.templates.forEach(function(t) {
+            var opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = '📋 ' + t.name;
+            sel.appendChild(opt);
+          });
+        }
+      })
+      .catch(function(err) { console.error('Load templates error:', err); });
+  })();
+
+  // ═══════ SEARCH ═══════
+  function doSearch() {
+    var name = document.getElementById('searchName').value.trim();
+    var tplId = document.getElementById('searchTemplate').value;
+
+    if (!name || name.length < 2) {
+      showGuestToast('กรุณาพิมพ์ชื่ออย่างน้อย 2 ตัวอักษร');
+      return;
+    }
+
+    var btn = document.getElementById('btnSearch');
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังค้นหา...';
+
+    var area = document.getElementById('resultsArea');
+    area.style.display = 'block';
+    area.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>กำลังค้นหาเกียรติบัตร...</p></div>';
+
+    fetch(GUEST_API + '?action=guestSearch&name=' + encodeURIComponent(name) + '&templateId=' + encodeURIComponent(tplId))
+      .then(function(r) { return r.json(); })
+      .then(function(result) {
+        btn.disabled = false;
+        btn.textContent = '🔍 ค้นหา';
+        renderResults(result);
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = '🔍 ค้นหา';
+        area.innerHTML = '<div class="empty-state"><div class="icon">❌</div><p>เกิดข้อผิดพลาด: ' + escapeHtml(err.message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้') + '</p></div>';
+      });
+  }
+
+  // ═══════ RENDER RESULTS ═══════
+  function renderResults(result) {
+    var area = document.getElementById('resultsArea');
+
+    if (!result || !result.status) {
+      area.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + escapeHtml(result ? result.message : 'เกิดข้อผิดพลาด') + '</p></div>';
+      return;
+    }
+
+    if (!result.results || result.results.length === 0) {
+      area.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>ไม่พบเกียรติบัตรที่ตรงกับชื่อที่ค้นหา</p><p style="font-size:13px;margin-top:8px;">ตรวจสอบการสะกดชื่อ หรือลองค้นหาด้วยชื่อบางส่วน</p></div>';
+      return;
+    }
+
+    var html = '<div class="results-header">';
+    html += '<h2>📋 ผลการค้นหา</h2>';
+    html += '<span class="results-count">' + result.total + ' รายการ</span>';
+    html += '</div>';
+
+    result.results.forEach(function(cert) {
+      html += '<div class="cert-card">';
+      html += '<div class="cert-name">🏆 ' + escapeHtml(cert.name) + '</div>';
+      html += '<div class="cert-info">';
+      if (cert.certNumber) html += '<span class="cert-badge">📜 ' + escapeHtml(cert.certNumber) + '</span>';
+      if (cert.school) html += '<span class="cert-badge">🏫 ' + escapeHtml(cert.school) + '</span>';
+      if (cert.templateName) html += '<span class="cert-badge tpl">📋 ' + escapeHtml(cert.templateName) + '</span>';
+      html += '</div>';
+      html += '<div class="cert-actions">';
+      if (cert.driveUrl) {
+        // แปลง view URL เป็น download URL
+        var fileIdMatch = cert.driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        if (fileIdMatch) {
+          var downloadUrl = 'https://drive.google.com/uc?export=download&id=' + fileIdMatch[1];
+          html += '<a href="' + downloadUrl + '" target="_blank" class="btn-cert btn-download">📥 ดาวน์โหลด</a>';
+        }
+        html += '<a href="' + escapeHtml(cert.driveUrl) + '" target="_blank" class="btn-cert btn-view">👁️ ดูตัวอย่าง</a>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+
+    area.innerHTML = html;
+  }
+
+  // ═══════ UTILS ═══════
+  function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function showGuestToast(message) {
+    var toast = document.getElementById('guestToast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, 3000);
+  }
+</script>
+
+</body>
+</html>

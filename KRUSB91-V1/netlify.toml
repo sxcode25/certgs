@@ -1,0 +1,46 @@
+# netlify.toml — Configuration for Certificate System on Netlify
+# ═══════════════════════════════════════════════════════════════════════
+
+[build]
+  publish = "."
+
+# ═══════════════════════════════════════════════════════════════════════
+# API Proxy → Google Apps Script (แก้ปัญหา CORS 100%)
+# ═══════════════════════════════════════════════════════════════════════
+# ⚠️ แทนที่ YOUR_DEPLOYMENT_ID ด้วย Deployment ID ของ GAS Web App
+# เช่น AKfycbx...xxxx
+
+[[redirects]]
+  from = "/api"
+  to = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
+  status = 200
+  force = true
+
+# ═══════════════════════════════════════════════════════════════════════
+# Cache Control สำหรับ Static Assets
+# ═══════════════════════════════════════════════════════════════════════
+
+[[headers]]
+  for = "/css/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# ═══════════════════════════════════════════════════════════════════════
+# Security Headers
+# ═══════════════════════════════════════════════════════════════════════
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

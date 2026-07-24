@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="description" content="ระบบสร้างเกียรติบัตรอัตโนมัติ - Certificate Generation System">
+  <title>ระบบสร้างเกียรติบัตรอัตโนมัติ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Kanit:wght@300;400;500;600;700&family=Prompt:wght@300;400;500;600&family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Noto+Serif+Thai:wght@300;400;500;600;700&family=Mitr:wght@300;400;500;600;700&family=Mali:wght@300;400;500;600;700&family=Charm:wght@400;700&family=Chakra+Petch:wght@300;400;500;600;700&family=Chonburi&family=Kodchasan:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     LOGIN SCREEN
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="loginScreen" class="login-container">
+  <div class="login-card">
+    <div class="login-icon">🏆</div>
+    <h1>ระบบสร้างเกียรติบัตร</h1>
+    <p class="login-subtitle">Certificate Generation System v1.0</p>
+
+    <div id="loginError" class="login-error"></div>
+
+    <div class="form-group">
+      <label for="loginUsername">ชื่อผู้ใช้</label>
+      <input type="text" id="loginUsername" placeholder="กรอกชื่อผู้ใช้" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label for="loginPassword">รหัสผ่าน</label>
+      <input type="password" id="loginPassword" placeholder="กรอกรหัสผ่าน" autocomplete="current-password">
+    </div>
+    <button id="loginBtn" class="login-btn" onclick="handleLogin()">
+      เข้าสู่ระบบ
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MAIN APPLICATION
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="appContainer" class="app-container">
+
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <h2>
+        <span class="brand-icon">🏆</span>
+        <span>เกียรติบัตร</span>
+      </h2>
+      <small>Certificate System</small>
+    </div>
+
+    <!-- Template Selector -->
+    <div class="sidebar-template-selector">
+      <label class="template-selector-label">📋 Template ที่ใช้งาน</label>
+      <select id="templateSelector" class="template-selector-dropdown" onchange="switchTemplate(this.value)">
+        <option value="">-- เลือก Template --</option>
+      </select>
+      <div class="template-selector-actions">
+        <button class="btn-template-action" onclick="createNewTemplate()" title="สร้าง Template ใหม่">➕ สร้างใหม่</button>
+      </div>
+    </div>
+
+    <div class="sidebar-nav">
+      <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-text">หน้าหลัก</span>
+      </div>
+      <div class="nav-item" data-tab="data" onclick="switchTab('data')">
+        <span class="nav-icon">📋</span>
+        <span class="nav-text">จัดการรายชื่อ</span>
+        <span class="nav-badge" id="navBadgeTotal">0</span>
+      </div>
+      <div class="nav-item" data-tab="designer" onclick="switchTab('designer')">
+        <span class="nav-icon">🎨</span>
+        <span class="nav-text">ออกแบบ Template</span>
+      </div>
+      <div class="nav-item" data-tab="export" onclick="switchTab('export')">
+        <span class="nav-icon">📤</span>
+        <span class="nav-text">Export / ดาวน์โหลด</span>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-user" onclick="toggleUserMenu()">
+        <div class="user-avatar">👤</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebarUserName">ผู้ดูแลระบบ</div>
+          <div class="user-role" id="sidebarUserRole">ADMIN</div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main Content ── -->
+  <main class="main-content">
+
+    <!-- ── Template Context Bar ── -->
+    <div id="templateContextBar" class="template-context-bar" style="display:none;">
+      <div class="context-bar-info">
+        <span class="context-bar-icon">📋</span>
+        <span class="context-bar-label">Template:</span>
+        <strong class="context-bar-name" id="contextBarName">—</strong>
+        <span class="context-bar-count" id="contextBarCount">0 รายชื่อ</span>
+      </div>
+      <button class="context-bar-switch" onclick="showTemplateGateModal()" title="สลับ Template">
+        🔄 สลับ Template
+      </button>
+    </div>
+
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TAB 1: DASHBOARD
+         ════════════════════════════════════════════════════════════════ -->
+    <section id="tabDashboard" class="tab-section active">
+      <div class="page-header">
+        <h1>🏠 หน้าหลัก</h1>
+        <p>ภาพรวมระบบสร้างเกียรติบัตร</p>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card blue">
+          <div class="stat-icon">📋</div>
+          <div class="stat-value" id="statTotal">-</div>
+          <div class="stat-label">รายชื่อทั้งหมด</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon">✅</div>
+          <div class="stat-value" id="statGenerated">-</div>
+          <div class="stat-label">สร้างแล้ว</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-value" id="statPending">-</div>
+          <div class="stat-label">รอดำเนินการ</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon">🎨</div>
+          <div class="stat-value" id="statTemplates">-</div>
+          <div class="stat-label">Templates</div>
+        </div>
+      </div>
+
+      <!-- Quick Actions + Activity -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <!-- Quick Actions -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⚡ ทางลัด</h3>
+          </div>
+          <div class="quick-actions">
+            <button class="quick-action-btn" onclick="switchTab('data'); showImportSection()">
+              <div class="qa-icon" style="background: var(--info-light); color: var(--info);">📥</div>
+              <span class="qa-label">นำเข้าข้อมูล</span>
+            </button>
+            <button class="quick-action-btn" onclick="switchTab('designer')">
+              <div class="qa-icon" style="background: #EDE9FE; color: #8B5CF6;">🎨</div>
+              <span class="qa-label">ออกแบบ Template</span>
+            </button>
+            <button class="quick-action-btn" onclick="switchTab('export'); startBulkExport()">
+              <div class="qa-icon" style="background: var(--success-light); color: var(--success);">📤</div>
+              <span class="qa-label">Export ทั้งหมด</span>
+            </button>
+            <button class="quick-action-btn" onclick="showSettingsModal()">
+              <div class="qa-icon" style="background: var(--warning-light); color: var(--warning);">⚙️</div>
+              <span class="qa-label">ตั้งค่า</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📝 กิจกรรมล่าสุด</h3>
+          </div>
+          <ul class="activity-list" id="activityList">
+            <li class="empty-state" style="padding: 24px;">
+              <div class="empty-icon">📝</div>
+              <p>ยังไม่มีกิจกรรม</p>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TAB 2: DATA MANAGEMENT
+         ════════════════════════════════════════════════════════════════ -->
+    <section id="tabData" class="tab-section">
+      <div class="page-header flex-between">
+        <div>
+          <h1>📋 จัดการรายชื่อ</h1>
+          <p>นำเข้า แก้ไข และจัดการรายชื่อผู้รับเกียรติบัตร</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-ghost" onclick="downloadImportTemplate()" title="ดาวน์โหลด Template Excel">
+            📄 Template Excel
+          </button>
+          <button class="btn btn-secondary" onclick="showImportSection()" id="btnShowImport">
+            📥 นำเข้าข้อมูล
+          </button>
+          <button class="btn btn-primary" onclick="showAddModal()">
+            ➕ เพิ่มรายชื่อ
+          </button>
+        </div>
+      </div>
+
+      <!-- Import Section (hidden by default) -->
+      <div id="importSection" class="card mb-3 hidden">
+        <div class="card-header">
+          <h3>📥 นำเข้าข้อมูล</h3>
+          <button class="btn-icon" onclick="hideImportSection()">✕</button>
+        </div>
+
+        <div id="dropZone" class="dropzone">
+          <div class="dropzone-icon">📁</div>
+          <h3>ลากไฟล์มาวางที่นี่</h3>
+          <p>หรือคลิกเพื่อเลือกไฟล์</p>
+          <div class="dropzone-formats">
+            <span class="format-badge">.xlsx</span>
+            <span class="format-badge">.csv</span>
+          </div>
+          <input type="file" id="fileInput" accept=".xlsx,.csv" style="display:none">
+        </div>
+
+        <!-- Import Preview -->
+        <div id="importPreview" class="import-preview hidden">
+          <div class="preview-info">
+            <span>📊 พบข้อมูล <strong id="importRowCount">0</strong> รายการ</span>
+            <span id="importErrors" class="text-error"></span>
+          </div>
+
+          <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+            <table class="data-table" id="importPreviewTable">
+              <thead><tr id="importPreviewHead"></tr></thead>
+              <tbody id="importPreviewBody"></tbody>
+            </table>
+          </div>
+
+          <div class="preview-actions">
+            <div class="import-mode-select">
+              <label>
+                <input type="radio" name="importMode" value="append" checked>
+                ➕ เพิ่มต่อท้าย
+              </label>
+              <label>
+                <input type="radio" name="importMode" value="replace">
+                🔄 แทนที่ทั้งหมด
+              </label>
+            </div>
+            <div style="margin-left: auto;" class="btn-group">
+              <button class="btn btn-ghost" onclick="cancelImport()">ยกเลิก</button>
+              <button class="btn btn-success" onclick="confirmImport()">✅ ยืนยันนำเข้า</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Import Progress -->
+        <div id="importProgress" class="hidden">
+          <div class="progress-container">
+            <div class="progress-header">
+              <span class="progress-title">กำลังนำเข้าข้อมูล...</span>
+              <span class="progress-percent" id="importPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="importProgressBar" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Table -->
+      <div class="card">
+        <!-- Toolbar -->
+        <div class="table-toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" placeholder="ค้นหาชื่อ, โรงเรียน, เลขที่..." oninput="debounceSearch()">
+          </div>
+          <div class="filter-group">
+            <select id="filterStatus" onchange="loadData()">
+              <option value="">สถานะทั้งหมด</option>
+              <option value="pending">⏳ รอดำเนินการ</option>
+              <option value="generated">✅ สร้างแล้ว</option>
+              <option value="exported">📤 ส่งออกแล้ว</option>
+            </select>
+            <select id="filterSchool" onchange="loadData()">
+              <option value="">โรงเรียนทั้งหมด</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Bulk Actions -->
+        <div class="bulk-actions" id="bulkActions">
+          <span class="selected-count" id="selectedCount">เลือก 0 รายการ</span>
+          <button class="btn btn-sm btn-primary" onclick="bulkGenerate()">🏆 สร้างเกียรติบัตร</button>
+          <button class="btn btn-sm btn-secondary" onclick="bulkExport()">📤 Export</button>
+          <button class="btn btn-sm btn-danger" onclick="bulkDelete()">🗑️ ลบ</button>
+          <button class="btn btn-sm btn-ghost" onclick="clearSelection()" style="margin-left:auto;">ยกเลิกเลือก</button>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+          <table class="data-table" id="dataTable">
+            <thead>
+              <tr>
+                <th class="checkbox-cell">
+                  <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                </th>
+                <th onclick="sortColumn(0)">ลำดับ <span class="sort-icon">↕</span></th>
+                <th onclick="sortColumn(1)">ชื่อ-นามสกุล <span class="sort-icon">↕</span></th>
+                <th onclick="sortColumn(2)">โรงเรียน/หน่วยงาน <span class="sort-icon">↕</span></th>
+                <th onclick="sortColumn(3)">เลขที่ <span class="sort-icon">↕</span></th>
+                <th onclick="sortColumn(4)">วันที่ <span class="sort-icon">↕</span></th>
+                <th onclick="sortColumn(6)">สถานะ <span class="sort-icon">↕</span></th>
+                <th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="dataTableBody">
+              <!-- Data rows rendered by JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Skeleton Loading -->
+        <div id="tableSkeleton" class="hidden">
+          <div class="skeleton-row"><div class="skeleton skeleton-cell sm"></div><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell sm"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-cell sm"></div><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell sm"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-cell sm"></div><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell sm"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-cell sm"></div><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell sm"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-cell sm"></div><div class="skeleton skeleton-cell"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell md"></div><div class="skeleton skeleton-cell sm"></div></div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="empty-state hidden">
+          <div class="empty-icon">📋</div>
+          <h3>ยังไม่มีข้อมูล</h3>
+          <p>เริ่มต้นโดยการนำเข้าไฟล์ Excel/CSV หรือเพิ่มรายชื่อด้วยตนเอง</p>
+          <button class="btn btn-primary mt-2" onclick="showImportSection()">📥 นำเข้าข้อมูล</button>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="paginationArea">
+          <span class="pagination-info" id="paginationInfo">แสดง 0 - 0 จากทั้งหมด 0 รายการ</span>
+          <div class="pagination-controls" id="paginationControls">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TAB 3: TEMPLATE DESIGNER
+         ════════════════════════════════════════════════════════════════ -->
+    <section id="tabDesigner" class="tab-section">
+      <div class="page-header flex-between">
+        <div>
+          <h1>🎨 ออกแบบ Template</h1>
+          <p>สร้างและจัดการ Template เกียรติบัตร</p>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-secondary" onclick="showTemplateGateModal()">📂 โหลด Template</button>
+          <button class="btn btn-primary" onclick="saveCurrentTemplate()">💾 บันทึก</button>
+          <button class="btn btn-ghost" onclick="saveAsTemplate()" title="บันทึกเป็น Template ใหม่">📋 Save As</button>
+        </div>
+      </div>
+
+      <!-- Template Designer -->
+      <div class="editor-container">
+        <!-- Canvas Area -->
+        <div class="canvas-area">
+          <!-- Toolbar -->
+          <div class="canvas-toolbar">
+            <button class="btn-icon" onclick="canvasUndo()" title="Undo (Ctrl+Z)">↩️</button>
+            <button class="btn-icon" onclick="canvasRedo()" title="Redo (Ctrl+Y)">↪️</button>
+            <span class="toolbar-divider"></span>
+            <button class="btn-icon" onclick="canvasZoom(-0.1)" title="Zoom Out">➖</button>
+            <span class="zoom-display" id="zoomDisplay">100%</span>
+            <button class="btn-icon" onclick="canvasZoom(0.1)" title="Zoom In">➕</button>
+            <button class="btn-icon" onclick="canvasZoomFit()" title="Fit to Screen">🔲</button>
+            <span class="toolbar-divider"></span>
+            <button class="btn-icon" id="btnToggleGrid" onclick="toggleGrid()" title="Grid">📐</button>
+            <span class="toolbar-divider"></span>
+            <button class="btn btn-sm btn-secondary" onclick="showAddFieldMenu()">➕ เพิ่มข้อความ</button>
+            <button class="btn btn-sm btn-secondary" onclick="showUploadImageDialog()">🖼️ เพิ่มรูปภาพ</button>
+            <span class="toolbar-divider"></span>
+            <button class="btn btn-sm btn-secondary" onclick="uploadBackground()">🎨 พื้นหลัง</button>
+            <span id="autoSaveStatus" style="margin-left:auto; font-size:12px; color:var(--text-muted);">💾 บันทึกอัตโนมัติ</span>
+          </div>
+
+          <!-- Canvas Wrapper -->
+          <div class="canvas-wrapper" id="canvasWrapper">
+            <canvas id="certCanvas" width="3508" height="2480"></canvas>
+          </div>
+
+          <!-- Preview Bar -->
+          <div class="preview-bar">
+            <span style="font-size:13px; color:var(--text-muted);">👁️ ดูตัวอย่าง:</span>
+            <select id="previewSelect" onchange="previewRecord()">
+              <option value="">-- เลือกรายชื่อ --</option>
+            </select>
+            <div class="preview-nav">
+              <button class="btn-icon" onclick="previewPrev()">◀️</button>
+              <span id="previewCounter">0/0</span>
+              <button class="btn-icon" onclick="previewNext()">▶️</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Properties Panel -->
+        <div class="properties-panel">
+          <!-- Elements List -->
+          <div class="panel-section">
+            <h4>📑 องค์ประกอบ</h4>
+            <div class="element-list" id="elementList">
+              <div class="empty-state" style="padding:16px;">
+                <p class="text-muted" style="font-size:13px;">คลิก "เพิ่มข้อความ" หรือ "เพิ่มรูปภาพ" เพื่อเริ่มออกแบบ</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Properties (shown when element selected) -->
+          <div class="panel-section" id="propsPanel" style="display:none;">
+            <h4>⚙️ คุณสมบัติ</h4>
+
+            <!-- Font -->
+            <div class="prop-row full" id="propFontFamily">
+              <div>
+                <div class="prop-label">ฟอนต์</div>
+                <select class="prop-input" id="propFont" onchange="updateProp('fontFamily', this.value)">
+                  <option value="TH Sarabun New">TH Sarabun New</option>
+                  <option value="Sarabun">Sarabun</option>
+                  <option value="Kanit">Kanit</option>
+                  <option value="Prompt">Prompt</option>
+                  <option value="Noto Sans Thai">Noto Sans Thai</option>
+                  <option value="Noto Serif Thai">Noto Serif Thai</option>
+                  <option value="Mitr">Mitr</option>
+                  <option value="Mali">Mali</option>
+                  <option value="Charm">Charm</option>
+                  <option value="Chakra Petch">Chakra Petch</option>
+                  <option value="Chonburi">Chonburi</option>
+                  <option value="Kodchasan">Kodchasan</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Font Size -->
+            <div class="prop-row" id="propFontSizeRow">
+              <div>
+                <div class="prop-label">ขนาด</div>
+                <input type="range" class="prop-input" id="propFontSizeSlider" min="8" max="200" value="48" oninput="document.getElementById('propFontSize').value=this.value; updateProp('fontSize', parseInt(this.value))">
+              </div>
+              <div>
+                <div class="prop-label">&nbsp;</div>
+                <input type="number" class="prop-input" id="propFontSize" min="8" max="200" value="48" onchange="document.getElementById('propFontSizeSlider').value=this.value; updateProp('fontSize', parseInt(this.value))">
+              </div>
+            </div>
+
+            <!-- Style Toggles -->
+            <div class="prop-row full" id="propStyleRow">
+              <div>
+                <div class="prop-label">สไตล์</div>
+                <div class="style-toggles">
+                  <button class="style-toggle" id="propBold" onclick="toggleStyle('bold')" title="ตัวหนา"><b>B</b></button>
+                  <button class="style-toggle" id="propItalic" onclick="toggleStyle('italic')" title="ตัวเอียง"><i>I</i></button>
+                  <button class="style-toggle" id="propUnderline" onclick="toggleStyle('underline')" title="ขีดเส้นใต้"><u>U</u></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Text Align -->
+            <div class="prop-row full" id="propAlignRow">
+              <div>
+                <div class="prop-label">จัดตำแหน่งข้อความ</div>
+                <div class="align-toggles">
+                  <button class="align-toggle" onclick="updateProp('textAlign', 'left')" data-align="left">◀</button>
+                  <button class="align-toggle active" onclick="updateProp('textAlign', 'center')" data-align="center">☰</button>
+                  <button class="align-toggle" onclick="updateProp('textAlign', 'right')" data-align="right">▶</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Color + Opacity -->
+            <div class="prop-row">
+              <div>
+                <div class="prop-label">สี</div>
+                <input type="color" class="prop-input" id="propColor" value="#000000" onchange="updateProp('color', this.value)">
+              </div>
+              <div>
+                <div class="prop-label">ความโปร่งใส</div>
+                <input type="range" class="prop-input" id="propOpacity" min="0" max="100" value="100" oninput="updateProp('opacity', this.value / 100)">
+              </div>
+            </div>
+
+            <!-- Position -->
+            <div class="prop-row">
+              <div>
+                <div class="prop-label">X</div>
+                <input type="number" class="prop-input" id="propX" value="0" onchange="updateProp('x', parseInt(this.value))">
+              </div>
+              <div>
+                <div class="prop-label">Y</div>
+                <input type="number" class="prop-input" id="propY" value="0" onchange="updateProp('y', parseInt(this.value))">
+              </div>
+            </div>
+
+            <!-- Width + Line Height (text only) -->
+            <div class="prop-row" id="propTextExtras">
+              <div>
+                <div class="prop-label">ความกว้าง</div>
+                <input type="number" class="prop-input" id="propWidth" value="800" onchange="updateProp('width', parseInt(this.value))">
+              </div>
+              <div>
+                <div class="prop-label">ระยะห่างบรรทัด</div>
+                <input type="number" class="prop-input" id="propLineHeight" value="1.4" step="0.1" min="0.5" max="3" onchange="updateProp('lineHeight', parseFloat(this.value))">
+              </div>
+            </div>
+
+            <!-- Image Size (image only) -->
+            <div class="prop-row" id="propImageExtras" style="display:none;">
+              <div>
+                <div class="prop-label">กว้าง</div>
+                <input type="number" class="prop-input" id="propImgWidth" value="200" onchange="updateProp('imgWidth', parseInt(this.value))">
+              </div>
+              <div>
+                <div class="prop-label">สูง</div>
+                <input type="number" class="prop-input" id="propImgHeight" value="200" onchange="updateProp('imgHeight', parseInt(this.value))">
+              </div>
+            </div>
+
+            <!-- Static Text Content -->
+            <div class="prop-row full" id="propStaticTextRow" style="display:none;">
+              <div>
+                <div class="prop-label">ข้อความ</div>
+                <textarea class="prop-input" id="propStaticText" rows="2" oninput="updateProp('staticText', this.value)" style="resize:vertical;"></textarea>
+              </div>
+            </div>
+
+            <!-- Delete -->
+            <div class="prop-row full mt-2">
+              <button class="btn btn-danger btn-sm w-full" onclick="deleteSelectedElement()">🗑️ ลบองค์ประกอบนี้</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TAB 4: EXPORT / DOWNLOAD
+         ════════════════════════════════════════════════════════════════ -->
+    <section id="tabExport" class="tab-section">
+      <div class="page-header">
+        <h1>📤 Export / ดาวน์โหลด</h1>
+        <p>สร้างเกียรติบัตรและดาวน์โหลดไฟล์</p>
+      </div>
+
+      <!-- Export Options -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <h3>⚙️ ตัวเลือก Export</h3>
+        </div>
+
+        <!-- Source Selection -->
+        <div class="form-group">
+          <label>เลือกรายชื่อ</label>
+          <div class="export-options" id="exportSourceOptions">
+            <div class="export-option-card selected" data-source="all" onclick="selectExportSource('all')">
+              <div class="option-icon">📋</div>
+              <h4>ทั้งหมด</h4>
+              <p>สร้างเกียรติบัตรทุกรายชื่อ</p>
+            </div>
+            <div class="export-option-card" data-source="pending" onclick="selectExportSource('pending')">
+              <div class="option-icon">⏳</div>
+              <h4>เฉพาะรอดำเนินการ</h4>
+              <p>สร้างเฉพาะที่ยังไม่ได้สร้าง</p>
+            </div>
+            <div class="export-option-card" data-source="selected" onclick="selectExportSource('selected')">
+              <div class="option-icon">☑️</div>
+              <h4>เฉพาะที่เลือก</h4>
+              <p>สร้างเฉพาะรายการที่เลือกไว้ในตาราง</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Export Settings -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>รูปแบบไฟล์</label>
+            <select class="form-control" id="exportFormat">
+              <option value="direct">⚡ Direct Upload (เร็วที่สุด — บันทึกใน Drive)</option>
+              <option value="zip">📦 ZIP รวมทั้งหมด</option>
+              <option value="individual">🖼️ PNG ทีละไฟล์ (ช้า)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>ความละเอียด</label>
+            <select class="form-control" id="exportResolution">
+              <option value="1">Standard (100%)</option>
+              <option value="1.5">High (150%)</option>
+              <option value="2">Ultra (200%)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>ชื่อไฟล์ pattern</label>
+            <select class="form-control" id="exportFilename">
+              <option value="{certNumber}_{name}">เลขที่_ชื่อ</option>
+              <option value="{name}_{certNumber}">ชื่อ_เลขที่</option>
+              <option value="{certNumber}">เลขที่เท่านั้น</option>
+              <option value="{name}">ชื่อเท่านั้น</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Image Format Settings -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>รูปแบบภาพ</label>
+            <select class="form-control" id="exportImageFormat" onchange="toggleJpegQuality()">
+              <option value="jpeg">📷 JPEG (เร็ว, ขนาดเล็ก)</option>
+              <option value="png">🖼️ PNG (คุณภาพสูงสุด)</option>
+              <option value="pdf">📄 PDF (เอกสาร, พิมพ์ง่าย)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>คุณภาพ JPEG</label>
+            <select class="form-control" id="exportJpegQuality">
+              <option value="0.95">สูงมาก (95%)</option>
+              <option value="0.92" selected>สูง (92%)</option>
+              <option value="0.85">ปานกลาง (85%) — เร็วกว่า</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn btn-success" id="btnStartExport" onclick="startExport()">
+            🚀 เริ่มสร้างเกียรติบัตร
+          </button>
+        </div>
+      </div>
+
+      <!-- Export Progress -->
+      <div class="card mb-3" id="exportProgressCard" style="display:none;">
+        <div class="card-header">
+          <h3>⏳ กำลังสร้างเกียรติบัตร...</h3>
+          <button class="btn btn-sm btn-danger" id="btnCancelExport" onclick="cancelExport()">❌ ยกเลิก</button>
+        </div>
+        <div class="progress-container">
+          <div class="progress-header">
+            <span class="progress-title" id="exportCurrentName">กำลังเตรียมข้อมูล...</span>
+            <span class="progress-percent" id="exportPercent">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="exportProgressBar" style="width: 0%"></div>
+          </div>
+          <div class="progress-detail">
+            <span id="exportProgressDetail">0 / 0 รายการ</span>
+            <span id="exportTimeElapsed"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Export Result -->
+      <div class="card mb-3" id="exportResultCard" style="display:none;">
+        <div class="card-header">
+          <h3>✅ สร้างเกียรติบัตรเสร็จสมบูรณ์</h3>
+        </div>
+        <div style="text-align: center; padding: 20px;">
+          <div style="font-size: 64px; margin-bottom: 16px;">🎉</div>
+          <h3 id="exportResultSummary">สร้างเกียรติบัตรสำเร็จ 0 รายการ</h3>
+          <p class="text-muted mt-1" id="exportResultTime">ใช้เวลา 0 วินาที</p>
+          <div class="btn-group mt-2" style="justify-content: center;">
+            <a class="btn btn-success" id="exportDownloadBtn" href="#" target="_blank">📥 ดาวน์โหลด ZIP</a>
+            <button class="btn btn-secondary" onclick="openDriveFolder()">📁 เปิด Drive</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Export History -->
+      <div class="card">
+        <div class="card-header">
+          <h3>📜 ประวัติ Export</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-ghost" onclick="confirmClearExportHistory()" style="color:#EF4444;">🗑️ ล้างประวัติ</button>
+            <button class="btn btn-sm btn-ghost" onclick="loadExportHistory()">🔄 รีเฟรช</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>วันเวลา</th>
+                <th>ผู้ดำเนินการ</th>
+                <th>การดำเนินการ</th>
+                <th>จำนวน</th>
+                <th>สถานะ</th>
+                <th>หมายเหตุ</th>
+              </tr>
+            </thead>
+            <tbody id="exportHistoryBody">
+              <tr>
+                <td colspan="6" class="text-center text-muted" style="padding:24px;">ยังไม่มีประวัติ</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: ADD / EDIT RECORD
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="recordModal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="recordModalTitle">➕ เพิ่มรายชื่อ</h3>
+      <button class="modal-close" onclick="closeModal('recordModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editRowIndex">
+      <div class="form-row">
+        <div class="form-group">
+          <label>ชื่อ-นามสกุล *</label>
+          <input type="text" class="form-control" id="recName" placeholder="กรอกชื่อ-นามสกุล">
+        </div>
+        <div class="form-group">
+          <label>โรงเรียน/หน่วยงาน</label>
+          <input type="text" class="form-control" id="recSchool" placeholder="กรอกโรงเรียน/หน่วยงาน">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>เลขที่เกียรติบัตร</label>
+          <input type="text" class="form-control" id="recCertNumber" placeholder="Auto">
+        </div>
+        <div class="form-group">
+          <label>วัน เดือน ปี</label>
+          <input type="text" class="form-control" id="recDate" placeholder="เช่น 12 มิถุนายน 2568">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>คนลงนาม</label>
+          <input type="text" class="form-control" id="recSigner" placeholder="ชื่อผู้ลงนาม">
+        </div>
+        <div class="form-group">
+          <label>ตำแหน่ง</label>
+          <input type="text" class="form-control" id="recPosition" placeholder="ตำแหน่งผู้ลงนาม">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>ข้อมูลเพิ่มเติม 1</label>
+          <input type="text" class="form-control" id="recExtra1">
+        </div>
+        <div class="form-group">
+          <label>ข้อมูลเพิ่มเติม 2</label>
+          <input type="text" class="form-control" id="recExtra2">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>ข้อมูลเพิ่มเติม 3</label>
+          <input type="text" class="form-control" id="recExtra3">
+        </div>
+        <div class="form-group">
+          <label>ข้อมูลเพิ่มเติม 4</label>
+          <input type="text" class="form-control" id="recExtra4">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>ข้อมูลเพิ่มเติม 5</label>
+        <input type="text" class="form-control" id="recExtra5">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('recordModal')">ยกเลิก</button>
+      <button class="btn btn-primary" id="recordSaveBtn" onclick="saveRecord()">💾 บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: ADD FIELD (Canvas)
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="addFieldModal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>➕ เพิ่มข้อความ</h3>
+      <button class="modal-close" onclick="closeModal('addFieldModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="text-muted mb-2">เลือกประเภทข้อมูลที่ต้องการเพิ่มบน Template</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('name')">👤 ชื่อ-นามสกุล</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('school')">🏫 โรงเรียน</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('certNumber')">🔢 เลขที่เกียรติบัตร</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('date')">📅 วัน เดือน ปี</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('signer')">✍️ คนลงนาม</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('position')">💼 ตำแหน่ง</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('extra1')">📝 ข้อมูลเพิ่มเติม 1</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('extra2')">📝 ข้อมูลเพิ่มเติม 2</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('extra3')">📝 ข้อมูลเพิ่มเติม 3</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('extra4')">📝 ข้อมูลเพิ่มเติม 4</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('extra5')">📝 ข้อมูลเพิ่มเติม 5</button>
+        <button class="btn btn-secondary w-full" onclick="addFieldElement('static')">📄 ข้อความคงที่</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: SAVE TEMPLATE
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="saveTemplateModal" class="modal-overlay">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3>💾 บันทึก Template</h3>
+      <button class="modal-close" onclick="closeModal('saveTemplateModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>ชื่อ Template</label>
+        <input type="text" class="form-control" id="saveTemplateName" placeholder="กรอกชื่อ Template">
+      </div>
+      <div class="form-group">
+        <label>Prefix เลขเกียรติบัตร</label>
+        <input type="text" class="form-control" id="saveTemplatePrefix" placeholder="เช่น SCI-, MATH-, A001-">
+        <span class="form-hint">จะนำหน้าเลขที่เกียรติบัตร เช่น SCI-0001, MATH-0001</span>
+      </div>
+      <div class="form-group">
+        <label>ขนาด Canvas</label>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <input type="number" class="form-control" id="saveTemplateWidth" value="3508" min="100">
+            <span class="form-hint">กว้าง (px)</span>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <input type="number" class="form-control" id="saveTemplateHeight" value="2480" min="100">
+            <span class="form-hint">สูง (px)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('saveTemplateModal')">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="confirmSaveTemplate()">💾 บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: EDIT STATIC TEXT (แทน prompt())
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="editTextModal" class="modal-overlay">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3>✏️ แก้ไขข้อความ</h3>
+      <button class="modal-close" onclick="closeModal('editTextModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>ข้อความ</label>
+        <textarea class="form-control" id="editTextValue" rows="3" placeholder="กรอกข้อความ"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('editTextModal')">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="confirmEditText()">✅ ตกลง</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: SETTINGS
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="settingsModal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>⚙️ ตั้งค่าระบบ</h3>
+      <button class="modal-close" onclick="closeModal('settingsModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>คำนำหน้าเลขที่เกียรติบัตร</label>
+        <input type="text" class="form-control" id="setNumberPrefix" placeholder="เช่น กบ.">
+      </div>
+      <div class="form-group">
+        <label>รูปแบบตัวเลข</label>
+        <input type="text" class="form-control" id="setNumberFormat" placeholder="เช่น 0000">
+        <span class="form-hint">ตัวอย่าง: 0000 จะได้ 0001, 0002, ...</span>
+      </div>
+      <div class="form-group">
+        <label>สร้างเลขที่อัตโนมัติ</label>
+        <select class="form-control" id="setAutoNumbering">
+          <option value="TRUE">เปิดใช้งาน</option>
+          <option value="FALSE">ปิดใช้งาน</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ฟอนต์เริ่มต้น</label>
+        <select class="form-control" id="setDefaultFont">
+          <option value="TH Sarabun New">TH Sarabun New</option>
+          <option value="Sarabun">Sarabun</option>
+          <option value="Kanit">Kanit</option>
+          <option value="Prompt">Prompt</option>
+          <option value="Noto Sans Thai">Noto Sans Thai</option>
+          <option value="Noto Serif Thai">Noto Serif Thai</option>
+          <option value="Mitr">Mitr</option>
+          <option value="Mali">Mali</option>
+          <option value="Charm">Charm</option>
+          <option value="Chakra Petch">Chakra Petch</option>
+          <option value="Chonburi">Chonburi</option>
+          <option value="Kodchasan">Kodchasan</option>
+        </select>
+      </div>
+      <hr style="border-color: var(--border-light); margin: 16px 0;">
+      <div class="form-group">
+        <label>เปลี่ยนรหัสผ่าน</label>
+        <input type="password" class="form-control mb-1" id="setOldPassword" placeholder="รหัสผ่านเก่า">
+        <input type="password" class="form-control" id="setNewPassword" placeholder="รหัสผ่านใหม่">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('settingsModal')">ปิด</button>
+      <button class="btn btn-primary" onclick="saveSettings()">💾 บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: SELECT NAMES (เลือกรายชื่อ)
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="selectNamesModal" class="modal-overlay">
+  <div class="modal" style="max-width: 700px;">
+    <div class="modal-header">
+      <h3>☑️ เลือกรายชื่อสำหรับสร้างเกียรติบัตร</h3>
+      <button class="modal-close" onclick="closeModal('selectNamesModal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 0;">
+      <!-- Filters -->
+      <div class="name-select-filters">
+        <input type="text" id="nameSelectSearch" class="form-control" placeholder="🔍 ค้นหาชื่อ, โรงเรียน..." oninput="filterNameSelectList()">
+        <select id="nameSelectSchool" class="form-control" onchange="filterNameSelectList()">
+          <option value="">โรงเรียนทั้งหมด</option>
+        </select>
+        <select id="nameSelectStatus" class="form-control" onchange="filterNameSelectList()">
+          <option value="">สถานะทั้งหมด</option>
+          <option value="pending">⏳ รอดำเนินการ</option>
+          <option value="generated">✅ สร้างแล้ว</option>
+          <option value="exported">📤 ส่งแล้ว</option>
+        </select>
+      </div>
+
+      <!-- Select All -->
+      <div class="name-select-toolbar">
+        <label class="name-select-all-label">
+          <input type="checkbox" id="nameSelectAll" onchange="toggleAllNames(this.checked)">
+          <span>เลือก/ยกเลิกทั้งหมด</span>
+        </label>
+        <span id="nameSelectCount" class="name-select-count">เลือกแล้ว 0 / 0 รายการ</span>
+      </div>
+
+      <!-- Name List -->
+      <div class="name-select-list" id="nameSelectList">
+        <div class="name-select-empty">กำลังโหลด...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('selectNamesModal')">ยกเลิก</button>
+      <button class="btn btn-success" id="btnStartFromModal" onclick="startExportFromModal()" disabled>🚀 เริ่มสร้าง (0)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: CONFIRM
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="confirmModal" class="modal-overlay">
+  <div class="modal" style="max-width: 420px;">
+    <div class="modal-header">
+      <h3 id="confirmTitle">⚠️ ยืนยัน</h3>
+      <button class="modal-close" onclick="closeModal('confirmModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirmMessage">คุณแน่ใจหรือไม่?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">ยกเลิก</button>
+      <button class="btn btn-danger" id="confirmBtn" onclick="">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: PROMPT INPUT (แทน browser prompt)
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="promptModal" class="modal-overlay">
+  <div class="modal" style="max-width: 440px;">
+    <div class="modal-header">
+      <h3 id="promptTitle">✏️ กรอกข้อมูล</h3>
+      <button class="modal-close" onclick="closeModal('promptModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="promptMessage" style="margin-bottom: 12px; color: var(--text-muted);"></p>
+      <input type="text" id="promptInput" class="form-control" placeholder="" autocomplete="off"
+        style="width: 100%; padding: 10px 14px; font-size: 15px; border: 2px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-ui); transition: border-color 0.2s;"
+        onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('promptModal')">ยกเลิก</button>
+      <button class="btn btn-primary" id="promptBtn">ตกลง</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MODAL: TEMPLATE GATE (บังคับเลือก Template)
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="templateGateModal" class="modal-overlay template-gate-overlay">
+  <div class="modal template-gate-modal">
+    <div class="modal-header template-gate-header">
+      <div class="gate-header-icon">📋</div>
+      <h3>เลือก Template เพื่อเริ่มต้น</h3>
+      <p class="gate-header-subtitle">กรุณาเลือก Template ที่ต้องการใช้งาน หรือสร้าง Template ใหม่</p>
+    </div>
+    <div class="modal-body template-gate-body">
+      <!-- Last Used (Quick Resume) -->
+      <div id="gateLastUsed" class="gate-last-used" style="display:none;">
+        <div class="gate-section-label">⚡ Template ล่าสุดที่ใช้</div>
+        <button class="gate-resume-btn" id="gateResumeBtn" onclick="">
+          <div class="gate-resume-info">
+            <span class="gate-resume-name" id="gateResumeName">—</span>
+            <span class="gate-resume-count" id="gateResumeCount">0 รายชื่อ</span>
+          </div>
+          <span class="gate-resume-arrow">▶</span>
+        </button>
+      </div>
+
+      <!-- Template Grid -->
+      <div class="gate-section-label" id="gateGridLabel" style="display:none;">📂 Template ทั้งหมด</div>
+      <div class="gate-template-grid" id="gateTemplateGrid">
+        <!-- Rendered by JS -->
+        <div class="gate-loading">
+          <div class="spinner" style="width:32px;height:32px;"></div>
+          <p>กำลังโหลด Template...</p>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="gateEmptyState" class="gate-empty-state" style="display:none;">
+        <div class="gate-empty-icon">🎨</div>
+        <h3>ยังไม่มี Template</h3>
+        <p>เริ่มต้นโดยการสร้าง Template ใหม่</p>
+      </div>
+
+      <!-- Create New -->
+      <div class="gate-create-new">
+        <button class="btn btn-primary gate-create-btn" onclick="createNewTemplateFromGate()">
+          ➕ สร้าง Template ใหม่
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     TOAST CONTAINER
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="toastContainer" class="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     LOADING OVERLAY
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="loadingOverlay" class="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">กำลังโหลด...</div>
+</div>
+
+<!-- Hidden file inputs -->
+<input type="file" id="bgFileInput" accept="image/png,image/jpeg" style="display:none">
+<input type="file" id="imgFileInput" accept="image/png,image/jpeg" style="display:none">
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SCRIPTS
+     ═══════════════════════════════════════════════════════════════════ -->
+<script src="js/api.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/core.js"></script>
+<script src="js/canvas.js"></script>
+<script src="js/export.js"></script>
+
+</body>
+</html>

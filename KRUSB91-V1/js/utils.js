@@ -1,0 +1,371 @@
+/**
+ * =========================================================================
+ * SCRIPT-UTILS.HTML — Shared Utilities: ระบบสร้างเกียรติบัตร (KRUSB85)
+ * =========================================================================
+ * Toast, Modal, Loading, Debounce, Keyboard shortcuts, etc.
+ * =========================================================================
+ */
+
+// ═══════════════════════════════════════════════════════════════════════
+// TOAST NOTIFICATION SYSTEM
+// ═══════════════════════════════════════════════════════════════════════
+
+var toastIcons = {
+  success: '✅',
+  error: '❌',
+  warning: '⚠️',
+  info: 'ℹ️'
+};
+
+var toastTitles = {
+  success: 'สำเร็จ',
+  error: 'ข้อผิดพลาด',
+  warning: 'คำเตือน',
+  info: 'แจ้งเตือน'
+};
+
+function showToast(message, type, duration) {
+  type = type || 'info';
+  duration = duration || 3000;
+
+  var container = document.getElementById('toastContainer');
+  var toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.innerHTML =
+    '<span class="toast-icon">' + (toastIcons[type] || 'ℹ️') + '</span>' +
+    '<div class="toast-content">' +
+    '<div class="toast-title">' + (toastTitles[type] || 'แจ้งเตือน') + '</div>' +
+    '<div class="toast-message">' + escapeHtml(message) + '</div>' +
+    '</div>';
+
+  toast.onclick = function() { removeToast(toast); };
+  container.appendChild(toast);
+
+  setTimeout(function() { removeToast(toast); }, duration);
+}
+
+function removeToast(toast) {
+  if (!toast || !toast.parentNode) return;
+  toast.classList.add('removing');
+  setTimeout(function() {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 300);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MODAL SYSTEM
+// ═══════════════════════════════════════════════════════════════════════
+
+function openModal(modalId) {
+  var modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeModal(modalId) {
+  var modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+}
+
+function showConfirm(title, message, callback) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMessage').textContent = message;
+  var btn = document.getElementById('confirmBtn');
+  btn.onclick = function() {
+    closeModal('confirmModal');
+    if (callback) callback();
+  };
+  openModal('confirmModal');
+}
+
+/**
+ * แสดง Prompt Modal (แทน browser prompt)
+ * @param {string} title - หัวข้อ Modal
+ * @param {string} message - ข้อความอธิบาย
+ * @param {string} defaultValue - ค่าเริ่มต้นใน input
+ * @param {function} callback - callback(value) เมื่อกดตกลง
+ */
+function showPromptModal(title, message, defaultValue, callback) {
+  document.getElementById('promptTitle').textContent = title;
+  document.getElementById('promptMessage').textContent = message || '';
+  var input = document.getElementById('promptInput');
+  input.value = defaultValue || '';
+
+  // ลบ listener เก่า
+  var btn = document.getElementById('promptBtn');
+  var newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+
+  function submit() {
+    var val = input.value.trim();
+    if (!val) {
+      input.style.borderColor = 'var(--error)';
+      input.focus();
+      return;
+    }
+    closeModal('promptModal');
+    if (callback) callback(val);
+  }
+
+  newBtn.onclick = submit;
+
+  // Enter key = submit
+  input.onkeydown = function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+  };
+
+  openModal('promptModal');
+  setTimeout(function() { input.focus(); input.select(); }, 200);
+}
+
+// ❌ ลบ overlay click handler — ป้องกันปิด Modal โดยไม่ตั้งใจ
+// ปิด Modal ได้เฉพาะ: ปุ่ม ✕ (modal-close) หรือ ปุ่มยกเลิก เท่านั้น
+
+// ═══════════════════════════════════════════════════════════════════════
+// LOADING OVERLAY
+// ═══════════════════════════════════════════════════════════════════════
+
+function showLoading(text) {
+  document.getElementById('loadingText').textContent = text || 'กำลังโหลด...';
+  document.getElementById('loadingOverlay').classList.add('active');
+}
+
+function hideLoading() {
+  document.getElementById('loadingOverlay').classList.remove('active');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DEBOUNCE / THROTTLE
+// ═══════════════════════════════════════════════════════════════════════
+
+function debounce(func, wait) {
+  var timeout;
+  return function() {
+    var context = this;
+    var args = arguments;
+    clearTimeout(timeout);
+    timeout = setTimeout(function() {
+      func.apply(context, args);
+    }, wait);
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UTILITY HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+
+function escapeHtml(text) {
+  if (!text) return '';
+  var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+function sanitizeText(text) {
+  if (!text) return '';
+  return String(text).replace(/[<>]/g, '');
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  var sizes = ['B', 'KB', 'MB', 'GB'];
+  var i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+function formatThaiDate(date) {
+  if (!date) return '';
+  if (typeof date === 'string') return date;
+  try {
+    return date.toLocaleString('th-TH');
+  } catch (e) {
+    return String(date);
+  }
+}
+
+function generateId() {
+  return 'el_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SESSION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════
+
+function getToken() {
+  return localStorage.getItem('cert_token') || '';
+}
+
+function setToken(token) {
+  localStorage.setItem('cert_token', token);
+}
+
+function clearToken() {
+  localStorage.removeItem('cert_token');
+  localStorage.removeItem('cert_user');
+}
+
+function getUserData() {
+  try {
+    return JSON.parse(localStorage.getItem('cert_user') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function setUserData(data) {
+  localStorage.setItem('cert_user', JSON.stringify(data));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SERVER CALL WRAPPER
+// ═══════════════════════════════════════════════════════════════════════
+
+function serverCall(functionName, args, onSuccess, onError) {
+  // แปลง args array เป็น params object สำหรับ api.call()
+  var params = {};
+  if (args && args.length > 0) {
+    params._args = args;
+  }
+
+  api.call(functionName, params)
+    .then(function(result) {
+      if (onSuccess) onSuccess(result);
+    })
+    .catch(function(err) {
+      console.error(functionName + ' Error:', err);
+      if (onError) {
+        onError(err);
+      } else {
+        showToast('เกิดข้อผิดพลาด: ' + (err.message || err), 'error');
+      }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', function(e) {
+  // Ctrl+Z — Undo (Canvas)
+  if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+    if (document.getElementById('tabDesigner').classList.contains('active')) {
+      e.preventDefault();
+      canvasUndo();
+    }
+  }
+  // Ctrl+Y or Ctrl+Shift+Z — Redo (Canvas)
+  if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+    if (document.getElementById('tabDesigner').classList.contains('active')) {
+      e.preventDefault();
+      canvasRedo();
+    }
+  }
+  // Ctrl+S — Save Template
+  if (e.ctrlKey && e.key === 's') {
+    e.preventDefault();
+    if (document.getElementById('tabDesigner').classList.contains('active')) {
+      saveCurrentTemplate();
+    }
+  }
+  // Delete — Delete selected element (only if not typing in input)
+  var isTyping = ['INPUT','TEXTAREA','SELECT'].indexOf(document.activeElement.tagName) !== -1;
+  if (e.key === 'Delete' && !isTyping) {
+    if (document.getElementById('tabDesigner').classList.contains('active')) {
+      deleteSelectedElement();
+    }
+  }
+  // Arrow keys — Nudge selected element (only if not typing in input)
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].indexOf(e.key) !== -1 && !isTyping) {
+    if (document.getElementById('tabDesigner').classList.contains('active') && typeof Canvas !== 'undefined' && Canvas.selectedId) {
+      e.preventDefault();
+      var el = getElementById(Canvas.selectedId);
+      if (el) {
+        var step = e.shiftKey ? 10 : 1;
+        if (e.key === 'ArrowUp') el.y -= step;
+        if (e.key === 'ArrowDown') el.y += step;
+        if (e.key === 'ArrowLeft') el.x -= step;
+        if (e.key === 'ArrowRight') el.x += step;
+        document.getElementById('propX').value = el.x;
+        document.getElementById('propY').value = el.y;
+        renderCanvas();
+      }
+    }
+  }
+  // Escape — Close modal
+  if (e.key === 'Escape') {
+    var modals = document.querySelectorAll('.modal-overlay.active');
+    if (modals.length > 0) {
+      modals[modals.length - 1].classList.remove('active');
+      document.body.style.overflow = '';
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// TAB NAVIGATION
+// ═══════════════════════════════════════════════════════════════════════
+
+function switchTab(tabName) {
+  // ✅ Template Gate: ตรวจว่าเลือก Template แล้วหรือยัง
+  if (tabName !== 'dashboard' && typeof AppState !== 'undefined' && !AppState.templateSelected) {
+    showToast('กรุณาเลือก Template ก่อน', 'warning');
+    if (typeof showTemplateGateModal === 'function') showTemplateGateModal();
+    return;
+  }
+
+  // Hide all tabs
+  document.querySelectorAll('.tab-section').forEach(function(el) {
+    el.classList.remove('active');
+  });
+
+  // Deactivate all nav items
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.remove('active');
+  });
+
+  // Show selected tab
+  var tabMap = {
+    'dashboard': 'tabDashboard',
+    'data': 'tabData',
+    'designer': 'tabDesigner',
+    'export': 'tabExport'
+  };
+
+  var tabId = tabMap[tabName];
+  if (tabId) {
+    document.getElementById(tabId).classList.add('active');
+  }
+
+  // Activate nav item
+  var navItem = document.querySelector('.nav-item[data-tab="' + tabName + '"]');
+  if (navItem) navItem.classList.add('active');
+
+  // Tab-specific actions
+  if (tabName === 'dashboard') {
+    if (AppState.templateSelected) loadDashboard();
+  } else if (tabName === 'data') {
+    loadData();
+  } else if (tabName === 'designer') {
+    initCanvasIfNeeded();
+  } else if (tabName === 'export') {
+    loadExportHistory();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SCREEN MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════
+
+function showLoginScreen() {
+  document.getElementById('loginScreen').style.display = '';
+  document.getElementById('appContainer').classList.remove('active');
+}
+
+function showAppScreen() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appContainer').classList.add('active');
+}

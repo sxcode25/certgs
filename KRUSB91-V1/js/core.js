@@ -1,0 +1,1524 @@
+/**
+ * =========================================================================
+ * SCRIPT-CORE.HTML — Core Logic: ระบบสร้างเกียรติบัตร (KRUSB85)
+ * =========================================================================
+ * Authentication, Dashboard, Data Table, Import, Manual Add
+ * =========================================================================
+ */
+
+// ═══════════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ═══════════════════════════════════════════════════════════════════════
+
+var AppState = {
+  currentPage: 1,
+  totalPages: 1,
+  perPage: 50,
+  sortBy: 0,
+  sortDir: 'asc',
+  selectedRows: [],
+  allRecords: [],
+  importData: null,
+  importErrors: [],
+  schools: [],
+  searchTimeout: null,
+  // Template Gate
+  templateSelected: false,
+  activeTemplateId: '',
+  activeTemplateName: '',
+  activeTemplateRecordCount: 0
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', function() {
+  var token = getToken();
+  if (token) {
+    showLoading('กำลังตรวจสอบ Session...');
+    api.checkSession(token)
+      .then(function(result) {
+        hideLoading();
+        if (result && result.status) {
+          setUserData(result.userData);
+          onLoginSuccess(result.userData);
+        } else {
+          clearToken();
+          showLoginScreen();
+        }
+      })
+      .catch(function(err) {
+        hideLoading();
+        clearToken();
+        showLoginScreen();
+      });
+  } else {
+    showLoginScreen();
+  }
+
+  // Setup drag & drop
+  setupDragDrop();
+
+  // Enter key on login
+  document.getElementById('loginPassword').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') handleLogin();
+  });
+  document.getElementById('loginUsername').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// AUTHENTICATION
+// ═══════════════════════════════════════════════════════════════════════
+
+function handleLogin() {
+  var username = document.getElementById('loginUsername').value.trim();
+  var password = document.getElementById('loginPassword').value;
+
+  if (!username || !password) {
+    showLoginError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+    return;
+  }
+
+  var btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'กำลังเข้าสู่ระบบ...';
+  hideLoginError();
+
+  api.loginUser(username, password)
+    .then(function(result) {
+      btn.disabled = false;
+      btn.textContent = 'เข้าสู่ระบบ';
+
+      if (result.status) {
+        setToken(result.token);
+        setUserData(result.userData);
+        onLoginSuccess(result.userData);
+        showToast('เข้าสู่ระบบสำเร็จ', 'success');
+      } else {
+        showLoginError(result.message);
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'เข้าสู่ระบบ';
+      showLoginError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    });
+}
+
+function onLoginSuccess(userData) {
+  showAppScreen();
+
+  // Update sidebar user info
+  document.getElementById('sidebarUserName').textContent = userData.displayName || userData.username;
+  document.getElementById('sidebarUserRole').textContent = (userData.role || 'user').toUpperCase();
+
+  // Load Template Selector
+  loadTemplateSelectorDropdown();
+
+  // ✅ Template Gate: ตรวจว่ามี active template หรือไม่
+  lockNavigation();
+  switchTab('dashboard');
+
+  // ดึงรายชื่อ Template พร้อมจำนวน → ตัดสินใจ
+  api.getTemplateListWithCounts()
+    .then(function(result) {
+      if (result && result.status && result.templates && result.templates.length > 0) {
+        // มี Template อยู่
+        if (result.templates.length === 1) {
+          // Auto-select ถ้ามี 1 Template เดียว
+          selectTemplateFromGate(result.templates[0].template_id);
+        } else {
+          // ✅ หลาย Template → แสดง Gate Modal เสมอ (ให้ผู้ใช้เลือก)
+          showTemplateGateModal();
+        }
+      } else {
+        // ไม่มี Template เลย → แสดง Gate (empty state)
+        showTemplateGateModal();
+      }
+    });
+}
+
+function handleLogout() {
+  showConfirm('🚪 ออกจากระบบ', 'คุณต้องการออกจากระบบหรือไม่?', function() {
+    showLoading('กำลังออกจากระบบ...');
+    api.logoutUser();
+  });
+}
+
+function toggleUserMenu() {
+  handleLogout();
+}
+
+function showLoginError(msg) {
+  var el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideLoginError() {
+  document.getElementById('loginError').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TEMPLATE SELECTOR (Sidebar Dropdown)
+// ═══════════════════════════════════════════════════════════════════════
+
+function loadTemplateSelectorDropdown() {
+  api.getTemplateList()
+    .then(function(result) {
+      var sel = document.getElementById('templateSelector');
+      if (!sel) return;
+      var currentActiveId = '';
+      sel.innerHTML = '<option value="">-- เลือก Template --</option>';
+
+      if (result && result.status && result.templates) {
+        result.templates.forEach(function(t) {
+          var opt = document.createElement('option');
+          opt.value = t.template_id;
+          opt.textContent = t.template_name + (t.number_prefix ? ' [' + t.number_prefix + ']' : '');
+          if (t.isActive) {
+            opt.selected = true;
+            currentActiveId = t.template_id;
+          }
+          sel.appendChild(opt);
+        });
+      }
+    });
+}
+
+function switchTemplate(templateId) {
+  if (!templateId) return;
+  selectTemplateFromGate(templateId);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TEMPLATE GATE — บังคับเลือก Template ก่อนใช้งาน
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * แสดง Template Gate Modal — ดึงรายชื่อ Template พร้อมจำนวน
+ */
+function showTemplateGateModal() {
+  var modal = document.getElementById('templateGateModal');
+  if (!modal) return;
+  modal.classList.add('active');
+
+  // โหลดรายชื่อ Template
+  var grid = document.getElementById('gateTemplateGrid');
+  grid.innerHTML = '<div class="gate-loading"><div class="spinner" style="width:32px;height:32px;"></div><p>กำลังโหลด Template...</p></div>';
+  document.getElementById('gateLastUsed').style.display = 'none';
+  document.getElementById('gateGridLabel').style.display = 'none';
+  document.getElementById('gateEmptyState').style.display = 'none';
+
+  api.getTemplateListWithCounts()
+    .then(function(result) {
+      if (!result || !result.status) {
+        grid.innerHTML = '<div class="gate-loading"><p>เกิดข้อผิดพลาด</p></div>';
+        return;
+      }
+
+      var templates = result.templates || [];
+      var activeId = result.activeId || '';
+
+      if (templates.length === 0) {
+        // Empty state
+        grid.innerHTML = '';
+        document.getElementById('gateEmptyState').style.display = '';
+        return;
+      }
+
+      // Quick Resume — ถ้ามี active template
+      if (activeId) {
+        var activeTpl = null;
+        for (var i = 0; i < templates.length; i++) {
+          if (templates[i].template_id === activeId) {
+            activeTpl = templates[i];
+            break;
+          }
+        }
+        if (activeTpl) {
+          document.getElementById('gateLastUsed').style.display = '';
+          document.getElementById('gateResumeName').textContent = activeTpl.template_name;
+          document.getElementById('gateResumeCount').textContent = (activeTpl.recordCount || 0) + ' รายชื่อ';
+          document.getElementById('gateResumeBtn').setAttribute('onclick', 'selectTemplateFromGate("' + activeId + '")');
+        }
+      }
+
+      // Template Grid
+      document.getElementById('gateGridLabel').style.display = '';
+      var html = '';
+      templates.forEach(function(t) {
+        var isActive = t.template_id === activeId;
+        var safeName = escapeHtml(t.template_name).replace(/'/g, "\\'");
+        html += '<div class="gate-template-card' + (isActive ? ' active' : '') + '" onclick="selectTemplateFromGate(\'' + t.template_id + '\')">';
+        if (isActive) html += '<span class="gate-card-active-badge">ใช้อยู่</span>';
+        // Thumbnail Preview
+        if (t.drive_file_id) {
+          html += '<div class="gate-card-preview"><img src="https://drive.google.com/thumbnail?id=' + t.drive_file_id + '&sz=w200" onerror="this.outerHTML=\'🏆\'"></div>';
+        } else {
+          html += '<div class="gate-card-icon">🏆</div>';
+        }
+        html += '<div class="gate-card-name">' + escapeHtml(t.template_name) + '</div>';
+        if (t.number_prefix) html += '<div class="gate-card-count" style="color:var(--primary);font-weight:600;">🔢 ' + escapeHtml(t.number_prefix) + '</div>';
+        html += '<div class="gate-card-count">' + (t.recordCount || 0) + ' รายชื่อ</div>';
+        html += '<div class="gate-card-actions" onclick="event.stopPropagation()">';
+        html += '<button onclick="renameTemplateAction(\'' + t.template_id + '\', \'' + safeName + '\', \'' + escapeHtml(t.number_prefix || '').replace(/'/g, "\\'") + '\')" title="แก้ไขชื่อ">✏️</button>';
+        html += '<button onclick="duplicateTemplateAction(\'' + t.template_id + '\', \'' + safeName + '\')" title="ทำสำเนา">📋</button>';
+        html += '<button class="danger" onclick="deleteTemplateAction(\'' + t.template_id + '\')" title="ลบ">🗑️</button>';
+        html += '</div>';
+        html += '</div>';
+      });
+      grid.innerHTML = html;
+    })
+    .catch(function(err) {
+      grid.innerHTML = '<div class="gate-loading"><p>โหลด Template ไม่สำเร็จ</p></div>';
+    });
+}
+
+/**
+ * เลือก Template จาก Gate → ใช้ switchTemplateContext (1 API call)
+ */
+function selectTemplateFromGate(templateId) {
+  if (!templateId) return;
+
+  showLoading('กำลังโหลด Template...');
+  // ปิด Gate Modal
+  closeTemplateGateModal();
+
+  api.switchTemplateContext(templateId)
+    .then(function(result) {
+      hideLoading();
+
+      if (!result || !result.status) {
+        showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        showTemplateGateModal();
+        return;
+      }
+
+      // ── 1. อัปเดต Canvas State (เฉพาะถ้าไม่ได้กำลังสร้าง Template ใหม่) ──
+      if (result.config && !Canvas.isCreatingNew) {
+        var config = result.config;
+
+        // ── Reset Canvas State (ล้างข้อมูลเก่าของ Template ก่อนหน้า) ──
+        Canvas.bgImage = null;
+        Canvas.selectedId = null;
+        Canvas.previewRecords = [];
+        Canvas.previewIndex = -1;
+        Canvas.undoStack = [];
+        Canvas.redoStack = [];
+
+        // ล้าง UI panels
+        var propsPanel = document.getElementById('propsPanel');
+        if (propsPanel) propsPanel.style.display = 'none';
+        var previewSelect = document.getElementById('previewSelect');
+        if (previewSelect) previewSelect.innerHTML = '<option value="">-- เลือกรายชื่อ --</option>';
+        var previewCounter = document.getElementById('previewCounter');
+        if (previewCounter) previewCounter.textContent = '0/0';
+
+        // ── ตั้งค่า State ใหม่ ──
+        Canvas.currentTemplateId = config.template_id;
+        Canvas.currentTemplateName = config.template_name;
+        Canvas.currentTemplatePrefix = config.number_prefix || '';
+        Canvas.width = config.canvas_width || 3508;
+        Canvas.height = config.canvas_height || 2480;
+        Canvas.elements = config.elements || [];
+
+        if (Canvas.el) {
+          Canvas.el.width = Canvas.width;
+          Canvas.el.height = Canvas.height;
+        }
+
+        if (config.drive_file_id) {
+          Canvas.bgFileId = config.drive_file_id;
+          if (typeof loadBgImageFromDrive === 'function' && Canvas.el) {
+            loadBgImageFromDrive(config.drive_file_id);
+          }
+        } else {
+          Canvas.bgImage = null;
+          Canvas.bgFileId = '';
+        }
+
+        if (typeof loadAllElementImages === 'function' && Canvas.el) {
+          loadAllElementImages();
+        }
+
+        if (document.getElementById('saveTemplateName')) {
+          document.getElementById('saveTemplateName').value = config.template_name || '';
+        }
+        if (document.getElementById('saveTemplatePrefix')) {
+          document.getElementById('saveTemplatePrefix').value = config.number_prefix || '';
+        }
+
+        if (Canvas.el) {
+          canvasZoomFit();
+          renderCanvas();
+          if (typeof updateElementList === 'function') updateElementList();
+        }
+
+        // อัปเดต AppState
+        AppState.activeTemplateId = config.template_id;
+        AppState.activeTemplateName = config.template_name;
+      }
+
+      // ── 2. อัปเดต Dashboard Stats ──
+      if (result.stats) {
+        var s = result.stats;
+        document.getElementById('statTotal').textContent = s.total || 0;
+        document.getElementById('statGenerated').textContent = s.generated || 0;
+        document.getElementById('statPending').textContent = s.pending || 0;
+        document.getElementById('statTemplates').textContent = s.templates || 0;
+        document.getElementById('navBadgeTotal').textContent = s.total || 0;
+        AppState.activeTemplateRecordCount = s.total || 0;
+      }
+
+      // ── 3. อัปเดต Data Table (ถ้า data tab เปิดอยู่) ──
+      if (result.data && result.data.status) {
+        var d = result.data;
+        if (d.schools && d.schools.length > 0) {
+          updateSchoolFilter(d.schools);
+        }
+        if (d.data.length > 0) {
+          var skeleton = document.getElementById('tableSkeleton');
+          var emptyState = document.getElementById('emptyState');
+          if (skeleton) skeleton.classList.add('hidden');
+          if (emptyState) emptyState.classList.add('hidden');
+          renderDataTable(d.data, d.page, AppState.perPage);
+          renderPagination(d.total, d.page, d.totalPages);
+          AppState.totalPages = d.totalPages;
+        }
+      }
+
+      // ── 4. อัปเดต Sidebar Dropdown ──
+      var sel = document.getElementById('templateSelector');
+      if (sel) {
+        for (var i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === templateId) {
+            sel.selectedIndex = i;
+            break;
+          }
+        }
+      }
+      loadTemplateSelectorDropdown();
+
+      // ── 5. ปลดล็อค Navigation + แสดง Context Bar ──
+      AppState.templateSelected = true;
+      unlockNavigation();
+      updateContextBar();
+
+      api.getRecentActivity()
+        .then(function(res) {
+          if (res && res.status && res.activities && res.activities.length > 0) {
+            renderActivityList(res.activities);
+          }
+        });
+
+      showToast('เลือก Template สำเร็จ', 'success');
+
+      // ── 6. สลับไปหน้า Designer ทันที ──
+      switchTab('designer');
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('โหลด Template ไม่สำเร็จ: ' + err.message, 'error');
+      showTemplateGateModal();
+    });
+}
+
+/**
+ * ปิด Template Gate Modal
+ */
+function closeTemplateGateModal() {
+  var modal = document.getElementById('templateGateModal');
+  if (modal) modal.classList.remove('active');
+}
+
+/**
+ * สร้าง Template ใหม่จาก Gate Modal
+ */
+function createNewTemplateFromGate() {
+  closeTemplateGateModal();
+  AppState.templateSelected = true;
+  unlockNavigation();
+
+  // ✅ ตั้ง flag ก่อนเรียก createNewTemplate
+  Canvas.isCreatingNew = true;
+
+  // ไปที่ Designer Tab → สร้าง Template ใหม่
+  if (typeof createNewTemplate === 'function') {
+    createNewTemplate();
+  } else {
+    switchTab('designer');
+  }
+}
+
+/**
+ * ✏️ แก้ไขชื่อ Template
+ */
+function renameTemplateAction(templateId, currentName, currentPrefix) {
+  // ใช้ Save Template Modal สำหรับแก้ไขชื่อ + prefix
+  var modal = document.getElementById('saveTemplateModal');
+  modal.querySelector('.modal-header h3').textContent = '✏️ แก้ไขชื่อ Template';
+  document.getElementById('saveTemplateName').value = currentName || '';
+  document.getElementById('saveTemplatePrefix').value = currentPrefix || '';
+
+  var saveBtn = modal.querySelector('.modal-footer .btn-primary');
+  saveBtn.textContent = '✅ บันทึก';
+  saveBtn.setAttribute('onclick', 'confirmRenameTemplate()');
+
+  // เก็บ templateId ไว้ใช้ตอน confirm
+  Canvas._renameTemplateId = templateId;
+
+  openModal('saveTemplateModal');
+}
+
+function confirmRenameTemplate() {
+  var newName = document.getElementById('saveTemplateName').value.trim();
+  var newPrefix = document.getElementById('saveTemplatePrefix').value.trim();
+  if (!newName) {
+    showToast('กรุณากรอกชื่อ Template', 'warning');
+    return;
+  }
+  closeModal('saveTemplateModal');
+
+  // Reset modal title + action
+  var modal = document.getElementById('saveTemplateModal');
+  modal.querySelector('.modal-header h3').textContent = '💾 บันทึก Template';
+  var saveBtn = modal.querySelector('.modal-footer .btn-primary');
+  saveBtn.textContent = '💾 บันทึก';
+  saveBtn.setAttribute('onclick', 'confirmSaveTemplate()');
+
+  var templateId = Canvas._renameTemplateId;
+  Canvas._renameTemplateId = null;
+
+  showLoading('กำลังเปลี่ยนชื่อ...');
+  api.renameTemplate(templateId, newName, newPrefix)
+    .then(function(result) {
+      hideLoading();
+      if (result && result.status) {
+        showToast('เปลี่ยนชื่อเป็น "' + result.newName + '" สำเร็จ', 'success');
+        // อัปเดต state ถ้าเป็น Template ที่ใช้อยู่
+        if (Canvas.currentTemplateId === templateId) {
+          Canvas.currentTemplateName = result.newName;
+          Canvas.currentTemplatePrefix = result.newPrefix || '';
+          AppState.activeTemplateName = result.newName;
+          updateContextBar();
+          if (document.getElementById('saveTemplateName')) {
+            document.getElementById('saveTemplateName').value = result.newName;
+          }
+        }
+        // Refresh Gate Modal ถ้าเปิดอยู่
+        var gateModal = document.getElementById('templateGateModal');
+        if (gateModal && gateModal.classList.contains('active')) {
+          showTemplateGateModal();
+        }
+        if (typeof loadTemplateSelectorDropdown === 'function') loadTemplateSelectorDropdown();
+      } else {
+        showToast('เปลี่ยนชื่อไม่สำเร็จ: ' + (result ? result.message : ''), 'error');
+      }
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('เปลี่ยนชื่อไม่สำเร็จ: ' + err.message, 'error');
+    });
+}
+
+/**
+ * ล็อค Navigation — ก่อนเลือก Template
+ */
+function lockNavigation() {
+  AppState.templateSelected = false;
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    var tab = el.getAttribute('data-tab');
+    if (tab !== 'dashboard') {
+      el.classList.add('nav-disabled');
+    }
+  });
+  // ซ่อน Context Bar
+  var bar = document.getElementById('templateContextBar');
+  if (bar) bar.style.display = 'none';
+}
+
+/**
+ * ปลดล็อค Navigation — หลังเลือก Template
+ */
+function unlockNavigation() {
+  AppState.templateSelected = true;
+  document.querySelectorAll('.nav-item.nav-disabled').forEach(function(el) {
+    el.classList.remove('nav-disabled');
+  });
+}
+
+/**
+ * อัปเดต Template Context Bar
+ */
+function updateContextBar() {
+  var bar = document.getElementById('templateContextBar');
+  if (!bar) return;
+
+  if (AppState.templateSelected && AppState.activeTemplateName) {
+    document.getElementById('contextBarName').textContent = AppState.activeTemplateName;
+    document.getElementById('contextBarCount').textContent = (AppState.activeTemplateRecordCount || 0) + ' รายชื่อ';
+    bar.style.display = '';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════
+
+function loadDashboard() {
+  // Load stats
+  api.getStats()
+    .then(function(result) {
+      if (result && result.status) {
+        var s = result.stats;
+        document.getElementById('statTotal').textContent = s.total || 0;
+        document.getElementById('statGenerated').textContent = s.generated || 0;
+        document.getElementById('statPending').textContent = s.pending || 0;
+        document.getElementById('statTemplates').textContent = s.templates || 0;
+        document.getElementById('navBadgeTotal').textContent = s.total || 0;
+      }
+    });
+
+  // Load activity
+  api.getRecentActivity()
+    .then(function(result) {
+      if (result && result.status && result.activities.length > 0) {
+        renderActivityList(result.activities);
+      }
+    });
+}
+
+function renderActivityList(activities) {
+  var html = '';
+  activities.forEach(function(a) {
+    var iconClass = a.status === 'success' ? 'success' : (a.status === 'failed' ? 'warning' : 'info');
+    var icon = a.status === 'success' ? '✅' : (a.status === 'failed' ? '⚠️' : 'ℹ️');
+    html += '<li class="activity-item">' +
+      '<div class="activity-icon ' + iconClass + '">' + icon + '</div>' +
+      '<div class="activity-content">' +
+      '<div class="activity-title">' + escapeHtml(a.action) + '</div>' +
+      '<div class="activity-meta">' + escapeHtml(a.username) + ' · ' + escapeHtml(a.timestamp) +
+      (a.note ? ' · ' + escapeHtml(a.note) : '') + '</div>' +
+      '</div>' +
+      '</li>';
+  });
+  document.getElementById('activityList').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DATA TABLE
+// ═══════════════════════════════════════════════════════════════════════
+
+function loadData() {
+  var tableBody = document.getElementById('dataTableBody');
+  var skeleton = document.getElementById('tableSkeleton');
+  var emptyState = document.getElementById('emptyState');
+
+  // Show skeleton
+  tableBody.innerHTML = '';
+  skeleton.classList.remove('hidden');
+  emptyState.classList.add('hidden');
+
+  var options = {
+    page: AppState.currentPage,
+    perPage: AppState.perPage,
+    search: document.getElementById('searchInput').value.trim(),
+    filterStatus: document.getElementById('filterStatus').value,
+    filterSchool: document.getElementById('filterSchool').value,
+    sortBy: AppState.sortBy,
+    sortDir: AppState.sortDir
+  };
+
+  api.getData(options)
+    .then(function(result) {
+      skeleton.classList.add('hidden');
+
+      if (!result || !result.status) {
+        showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        return;
+      }
+
+      // Update schools filter
+      if (result.schools && result.schools.length > 0) {
+        updateSchoolFilter(result.schools);
+      }
+
+      if (result.data.length === 0) {
+        emptyState.classList.remove('hidden');
+        document.getElementById('paginationInfo').textContent = 'ไม่พบข้อมูล';
+        document.getElementById('paginationControls').innerHTML = '';
+        return;
+      }
+
+      renderDataTable(result.data, result.page, result.perPage || AppState.perPage);
+      renderPagination(result.total, result.page, result.totalPages);
+
+      AppState.totalPages = result.totalPages;
+    })
+    .catch(function(err) {
+      skeleton.classList.add('hidden');
+      showToast('ไม่สามารถโหลดข้อมูลได้: ' + err.message, 'error');
+    });
+}
+
+function renderDataTable(data, page, perPage) {
+  var html = '';
+  var startNum = (page - 1) * perPage;
+
+  data.forEach(function(r, idx) {
+    var num = startNum + idx + 1;
+    var isSelected = AppState.selectedRows.indexOf(r.rowIndex) !== -1;
+    var statusClass = r.status || 'pending';
+    var statusText = { pending: '⏳ รอ', generated: '✅ สร้างแล้ว', exported: '📤 ส่งออก' };
+
+    html += '<tr class="' + (isSelected ? 'selected' : '') + '" data-row="' + r.rowIndex + '">' +
+      '<td class="checkbox-cell"><input type="checkbox" ' + (isSelected ? 'checked' : '') +
+      ' onchange="toggleRow(' + r.rowIndex + ', this.checked)"></td>' +
+      '<td>' + num + '</td>' +
+      '<td class="editable" ondblclick="startInlineEdit(this, ' + r.rowIndex + ', \'name\')">' + escapeHtml(r.name) + '</td>' +
+      '<td class="editable" ondblclick="startInlineEdit(this, ' + r.rowIndex + ', \'school\')">' + escapeHtml(r.school) + '</td>' +
+      '<td>' + escapeHtml(r.certNumber) + '</td>' +
+      '<td>' + escapeHtml(r.date) + '</td>' +
+      '<td><span class="status-badge ' + statusClass + '">' + (statusText[statusClass] || statusClass) + '</span></td>' +
+      '<td><div class="row-actions">' +
+      '<button class="btn-icon" onclick="editRow(' + r.rowIndex + ')" title="แก้ไข">✏️</button>' +
+      '<button class="btn-icon" onclick="previewRow(' + r.rowIndex + ')" title="ดูตัวอย่าง">👁️</button>' +
+      '<button class="btn-icon danger" onclick="deleteRow(' + r.rowIndex + ')" title="ลบ">🗑️</button>' +
+      '</div></td>' +
+      '</tr>';
+  });
+
+  document.getElementById('dataTableBody').innerHTML = html;
+
+  // Store current data for preview
+  AppState.currentPageData = data;
+}
+
+function renderPagination(total, page, totalPages) {
+  var start = (page - 1) * AppState.perPage + 1;
+  var end = Math.min(page * AppState.perPage, total);
+
+  document.getElementById('paginationInfo').textContent =
+    'แสดง ' + start + ' - ' + end + ' จากทั้งหมด ' + total + ' รายการ';
+
+  var controls = '';
+  controls += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="goToPage(' + (page - 1) + ')">◀</button>';
+
+  var startPage = Math.max(1, page - 2);
+  var endPage = Math.min(totalPages, page + 2);
+
+  if (startPage > 1) {
+    controls += '<button onclick="goToPage(1)">1</button>';
+    if (startPage > 2) controls += '<button disabled>...</button>';
+  }
+
+  for (var i = startPage; i <= endPage; i++) {
+    controls += '<button class="' + (i === page ? 'active' : '') + '" onclick="goToPage(' + i + ')">' + i + '</button>';
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) controls += '<button disabled>...</button>';
+    controls += '<button onclick="goToPage(' + totalPages + ')">' + totalPages + '</button>';
+  }
+
+  controls += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="goToPage(' + (page + 1) + ')">▶</button>';
+
+  document.getElementById('paginationControls').innerHTML = controls;
+}
+
+function goToPage(page) {
+  AppState.currentPage = page;
+  loadData();
+}
+
+function updateSchoolFilter(schools) {
+  var select = document.getElementById('filterSchool');
+  var currentVal = select.value;
+  var html = '<option value="">โรงเรียนทั้งหมด</option>';
+  schools.forEach(function(s) {
+    html += '<option value="' + escapeHtml(s) + '" ' + (s === currentVal ? 'selected' : '') + '>' + escapeHtml(s) + '</option>';
+  });
+  select.innerHTML = html;
+}
+
+// ── Search ──
+var debounceSearchTimer = null;
+function debounceSearch() {
+  clearTimeout(debounceSearchTimer);
+  debounceSearchTimer = setTimeout(function() {
+    AppState.currentPage = 1;
+    loadData();
+  }, 300);
+}
+
+// ── Sort ──
+function sortColumn(colIndex) {
+  if (AppState.sortBy === colIndex) {
+    AppState.sortDir = AppState.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    AppState.sortBy = colIndex;
+    AppState.sortDir = 'asc';
+  }
+
+  // Update UI
+  document.querySelectorAll('.data-table th').forEach(function(th, i) {
+    th.classList.remove('sorted');
+    var icon = th.querySelector('.sort-icon');
+    if (icon) icon.textContent = '↕';
+  });
+
+  var ths = document.querySelectorAll('.data-table th');
+  if (ths[colIndex + 1]) {
+    ths[colIndex + 1].classList.add('sorted');
+    var sortIcon = ths[colIndex + 1].querySelector('.sort-icon');
+    if (sortIcon) sortIcon.textContent = AppState.sortDir === 'asc' ? '↑' : '↓';
+  }
+
+  AppState.currentPage = 1;
+  loadData();
+}
+
+// ── Selection ──
+function toggleRow(rowIndex, checked) {
+  if (checked) {
+    if (AppState.selectedRows.indexOf(rowIndex) === -1) {
+      AppState.selectedRows.push(rowIndex);
+    }
+  } else {
+    AppState.selectedRows = AppState.selectedRows.filter(function(r) { return r !== rowIndex; });
+  }
+  updateBulkActions();
+  updateRowHighlight(rowIndex, checked);
+}
+
+function toggleSelectAll() {
+  var checked = document.getElementById('selectAll').checked;
+  var checkboxes = document.querySelectorAll('#dataTableBody input[type="checkbox"]');
+
+  if (checked) {
+    AppState.selectedRows = [];
+    checkboxes.forEach(function(cb) {
+      cb.checked = true;
+      var row = parseInt(cb.closest('tr').dataset.row);
+      AppState.selectedRows.push(row);
+      cb.closest('tr').classList.add('selected');
+    });
+  } else {
+    checkboxes.forEach(function(cb) {
+      cb.checked = false;
+      cb.closest('tr').classList.remove('selected');
+    });
+    AppState.selectedRows = [];
+  }
+  updateBulkActions();
+}
+
+function clearSelection() {
+  AppState.selectedRows = [];
+  document.getElementById('selectAll').checked = false;
+  document.querySelectorAll('#dataTableBody input[type="checkbox"]').forEach(function(cb) {
+    cb.checked = false;
+    cb.closest('tr').classList.remove('selected');
+  });
+  updateBulkActions();
+}
+
+function updateBulkActions() {
+  var count = AppState.selectedRows.length;
+  var bar = document.getElementById('bulkActions');
+  if (count > 0) {
+    bar.classList.add('visible');
+    document.getElementById('selectedCount').textContent = 'เลือก ' + count + ' รายการ';
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+function updateRowHighlight(rowIndex, highlight) {
+  var row = document.querySelector('tr[data-row="' + rowIndex + '"]');
+  if (row) {
+    if (highlight) row.classList.add('selected');
+    else row.classList.remove('selected');
+  }
+}
+
+// ── Inline Edit ──
+function startInlineEdit(td, rowIndex, field) {
+  if (td.classList.contains('editing')) return;
+
+  var currentValue = td.textContent;
+  td.classList.add('editing');
+  td.innerHTML = '<input type="text" value="' + escapeHtml(currentValue) + '">';
+  var input = td.querySelector('input');
+  input.focus();
+  input.select();
+
+  input.addEventListener('blur', function() {
+    finishInlineEdit(td, rowIndex, field, input.value, currentValue);
+  });
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      input.blur();
+    } else if (e.key === 'Escape') {
+      td.classList.remove('editing');
+      td.textContent = currentValue;
+    }
+  });
+}
+
+function finishInlineEdit(td, rowIndex, field, newValue, oldValue) {
+  td.classList.remove('editing');
+  td.textContent = newValue;
+
+  if (newValue !== oldValue) {
+    // Build minimal record from cached page data
+    var record = null;
+    if (AppState.currentPageData) {
+      for (var i = 0; i < AppState.currentPageData.length; i++) {
+        if (AppState.currentPageData[i].rowIndex === rowIndex) {
+          record = JSON.parse(JSON.stringify(AppState.currentPageData[i]));
+          break;
+        }
+      }
+    }
+
+    if (!record) {
+      record = {};
+      record[field] = newValue;
+    } else {
+      record[field] = newValue;
+    }
+
+    api.editRecord(rowIndex, record)
+      .then(function(r) {
+        if (r && r.status) {
+          showToast('แก้ไขสำเร็จ', 'success');
+          // Update cached data
+          if (AppState.currentPageData) {
+            for (var j = 0; j < AppState.currentPageData.length; j++) {
+              if (AppState.currentPageData[j].rowIndex === rowIndex) {
+                AppState.currentPageData[j][field] = newValue;
+                break;
+              }
+            }
+          }
+        } else {
+          showToast(r ? r.message : 'เกิดข้อผิดพลาด', 'error');
+          td.textContent = oldValue;
+        }
+      });
+  }
+}
+
+// ── Row Actions ──
+function editRow(rowIndex) {
+  // Try cached data first
+  var record = null;
+  if (AppState.currentPageData) {
+    for (var i = 0; i < AppState.currentPageData.length; i++) {
+      if (AppState.currentPageData[i].rowIndex === rowIndex) {
+        record = AppState.currentPageData[i];
+        break;
+      }
+    }
+  }
+
+  if (record) {
+    populateEditModal(rowIndex, record);
+  } else {
+    // Fallback: fetch from server
+    showLoading('กำลังโหลดข้อมูล...');
+    api.getData({ page: 1, perPage: 9999 })
+      .then(function(result) {
+        hideLoading();
+        if (!result || !result.status) return;
+        for (var j = 0; j < result.data.length; j++) {
+          if (result.data[j].rowIndex === rowIndex) {
+            populateEditModal(rowIndex, result.data[j]);
+            return;
+          }
+        }
+        showToast('ไม่พบข้อมูล', 'error');
+      });
+  }
+}
+
+function populateEditModal(rowIndex, record) {
+  document.getElementById('recordModalTitle').textContent = '✏️ แก้ไขรายชื่อ';
+  document.getElementById('editRowIndex').value = rowIndex;
+  document.getElementById('recName').value = record.name || '';
+  document.getElementById('recSchool').value = record.school || '';
+  document.getElementById('recCertNumber').value = record.certNumber || '';
+  document.getElementById('recDate').value = record.date || '';
+  document.getElementById('recSigner').value = record.signer || '';
+  document.getElementById('recPosition').value = record.position || '';
+  document.getElementById('recExtra1').value = record.extra1 || '';
+  document.getElementById('recExtra2').value = record.extra2 || '';
+  document.getElementById('recExtra3').value = record.extra3 || '';
+  document.getElementById('recExtra4').value = record.extra4 || '';
+  document.getElementById('recExtra5').value = record.extra5 || '';
+  openModal('recordModal');
+}
+
+function deleteRow(rowIndex) {
+  showConfirm('🗑️ ลบรายชื่อ', 'คุณต้องการลบรายชื่อนี้หรือไม่? การดำเนินการนี้ไม่สามารถยกเลิกได้', function() {
+    showLoading('กำลังลบ...');
+    api.deleteRecords([rowIndex])
+      .then(function(result) {
+        hideLoading();
+        if (result && result.status) {
+          showToast(result.message, 'success');
+          loadData();
+        } else {
+          showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        }
+      });
+  });
+}
+
+function previewRow(rowIndex) {
+  // Switch to designer tab and preview this record
+  switchTab('designer');
+  setTimeout(function() {
+    if (typeof loadPreviewData === 'function') {
+      loadPreviewData(rowIndex);
+    }
+  }, 500);
+}
+
+// ── Bulk Actions ──
+function bulkGenerate() {
+  if (AppState.selectedRows.length === 0) {
+    showToast('กรุณาเลือกรายชื่อ', 'warning');
+    return;
+  }
+  showConfirm('🏆 สร้างเกียรติบัตร', 'สร้างเกียรติบัตร ' + AppState.selectedRows.length + ' รายการ?', function() {
+    ExportState.selectedRecordRows = AppState.selectedRows.slice();
+    switchTab('export');
+    selectExportSource('selected');
+    startExport();
+  });
+}
+
+function bulkExport() {
+  if (AppState.selectedRows.length === 0) {
+    showToast('กรุณาเลือกรายชื่อ', 'warning');
+    return;
+  }
+  switchTab('export');
+  selectExportSource('selected');
+}
+
+function bulkDelete() {
+  if (AppState.selectedRows.length === 0) {
+    showToast('กรุณาเลือกรายชื่อ', 'warning');
+    return;
+  }
+  showConfirm('🗑️ ลบรายชื่อ', 'ลบ ' + AppState.selectedRows.length + ' รายการ? การดำเนินการนี้ไม่สามารถยกเลิกได้', function() {
+    showLoading('กำลังลบ...');
+    api.deleteRecords(AppState.selectedRows)
+      .then(function(result) {
+        hideLoading();
+        if (result && result.status) {
+          showToast(result.message, 'success');
+          AppState.selectedRows = [];
+          updateBulkActions();
+          loadData();
+        } else {
+          showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        }
+      });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ADD / EDIT RECORD MODAL
+// ═══════════════════════════════════════════════════════════════════════
+
+function showAddModal() {
+  document.getElementById('recordModalTitle').textContent = '➕ เพิ่มรายชื่อ';
+  document.getElementById('editRowIndex').value = '';
+
+  // Clear form
+  ['recName','recSchool','recCertNumber','recDate','recSigner','recPosition',
+   'recExtra1','recExtra2','recExtra3','recExtra4','recExtra5'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+
+  // Auto-generate cert number
+  api.getNextCertNumber()
+    .then(function(result) {
+      if (result && result.status) {
+        document.getElementById('recCertNumber').value = result.certNumber;
+      }
+    });
+
+  openModal('recordModal');
+}
+
+function saveRecord() {
+  var name = document.getElementById('recName').value.trim();
+  if (!name) {
+    showToast('กรุณากรอกชื่อ-นามสกุล', 'warning');
+    return;
+  }
+
+  var record = {
+    name: name,
+    school: document.getElementById('recSchool').value.trim(),
+    certNumber: document.getElementById('recCertNumber').value.trim(),
+    date: document.getElementById('recDate').value.trim(),
+    signer: document.getElementById('recSigner').value.trim(),
+    position: document.getElementById('recPosition').value.trim(),
+    extra1: document.getElementById('recExtra1').value.trim(),
+    extra2: document.getElementById('recExtra2').value.trim(),
+    extra3: document.getElementById('recExtra3').value.trim(),
+    extra4: document.getElementById('recExtra4').value.trim(),
+    extra5: document.getElementById('recExtra5').value.trim()
+  };
+
+  var editRowIndex = document.getElementById('editRowIndex').value;
+  showLoading('กำลังบันทึก...');
+
+  if (editRowIndex) {
+    // Edit mode
+    api.editRecord(parseInt(editRowIndex), record)
+      .then(function(result) {
+        hideLoading();
+        if (result && result.status) {
+          closeModal('recordModal');
+          showToast(result.message, 'success');
+          loadData();
+        } else {
+          showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        }
+      });
+  } else {
+    // Add mode
+    api.addRecord(record)
+      .then(function(result) {
+        hideLoading();
+        if (result && result.status) {
+          closeModal('recordModal');
+          showToast(result.message, 'success');
+          loadData();
+          loadDashboard();
+        } else {
+          showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        }
+      });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// IMPORT (DRAG & DROP)
+// ═══════════════════════════════════════════════════════════════════════
+
+function showImportSection() {
+  document.getElementById('importSection').classList.remove('hidden');
+  document.getElementById('importPreview').classList.add('hidden');
+  document.getElementById('importProgress').classList.add('hidden');
+}
+
+function hideImportSection() {
+  document.getElementById('importSection').classList.add('hidden');
+  AppState.importData = null;
+  AppState.importErrors = [];
+}
+
+function setupDragDrop() {
+  var dropZone = document.getElementById('dropZone');
+  var fileInput = document.getElementById('fileInput');
+
+  if (!dropZone) return;
+
+  dropZone.addEventListener('click', function() {
+    fileInput.click();
+  });
+
+  dropZone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    var files = e.dataTransfer.files;
+    if (files.length > 0) processImportFile(files[0]);
+  });
+
+  fileInput.addEventListener('change', function(e) {
+    if (e.target.files.length > 0) {
+      processImportFile(e.target.files[0]);
+      e.target.value = '';
+    }
+  });
+}
+
+function processImportFile(file) {
+  var ext = file.name.split('.').pop().toLowerCase();
+  if (ext !== 'xlsx' && ext !== 'csv') {
+    showToast('รองรับเฉพาะไฟล์ .xlsx และ .csv', 'error');
+    return;
+  }
+
+  showLoading('กำลังอ่านไฟล์...');
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data;
+      if (ext === 'xlsx') {
+        var workbook = XLSX.read(e.target.result, { type: 'array' });
+        var sheetName = workbook.SheetNames[0];
+        var sheet = workbook.Sheets[sheetName];
+        data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      } else {
+        // CSV
+        var text = new TextDecoder('utf-8').decode(new Uint8Array(e.target.result));
+        data = parseCSV(text);
+      }
+
+      hideLoading();
+
+      if (!data || data.length < 2) {
+        showToast('ไฟล์ว่างหรือมีข้อมูลน้อยเกินไป', 'error');
+        return;
+      }
+
+      parseImportData(data);
+    } catch (err) {
+      hideLoading();
+      showToast('ไม่สามารถอ่านไฟล์ได้: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parseCSV(text) {
+  var lines = text.split('\n');
+  return lines.map(function(line) {
+    return line.split(',').map(function(cell) {
+      return cell.trim().replace(/^"|"$/g, '');
+    });
+  }).filter(function(row) {
+    return row.some(function(c) { return c !== ''; });
+  });
+}
+
+function parseImportData(rawData) {
+  // Detect header row (first row)
+  var headers = rawData[0];
+  var rows = rawData.slice(1);
+
+  // Map columns to field names
+  var fieldMap = {
+    'ชื่อ': 'name', 'ชื่อ-นามสกุล': 'name', 'name': 'name',
+    'โรงเรียน': 'school', 'หน่วยงาน': 'school', 'school': 'school', 'โรงเรียน/หน่วยงาน': 'school',
+    'เลขที่': 'certNumber', 'เลขที่เกียรติบัตร': 'certNumber', 'cert': 'certNumber',
+    'วันที่': 'date', 'วัน เดือน ปี': 'date', 'date': 'date',
+    'คนลงนาม': 'signer', 'ผู้ลงนาม': 'signer', 'signer': 'signer',
+    'ตำแหน่ง': 'position', 'position': 'position',
+    'ข้อมูลเพิ่มเติม 1': 'extra1', 'extra1': 'extra1',
+    'ข้อมูลเพิ่มเติม 2': 'extra2', 'extra2': 'extra2',
+    'ข้อมูลเพิ่มเติม 3': 'extra3', 'extra3': 'extra3',
+    'ข้อมูลเพิ่มเติม 4': 'extra4', 'extra4': 'extra4',
+    'ข้อมูลเพิ่มเติม 5': 'extra5', 'extra5': 'extra5'
+  };
+
+  var colMapping = [];
+  headers.forEach(function(h, i) {
+    var key = String(h || '').trim();
+    colMapping[i] = fieldMap[key] || null;
+  });
+
+  // If no mapping found, use default column order
+  if (!colMapping.some(function(m) { return m !== null; })) {
+    colMapping = ['name','school','certNumber','date','signer','position',
+                  'extra1','extra2','extra3','extra4','extra5'];
+  }
+
+  // Parse rows
+  var parsedData = [];
+  var errors = [];
+
+  rows.forEach(function(row, idx) {
+    var record = {};
+    var hasData = false;
+
+    colMapping.forEach(function(field, colIdx) {
+      if (field && row[colIdx]) {
+        record[field] = String(row[colIdx] || '').trim();
+        if (record[field]) hasData = true;
+      }
+    });
+
+    if (hasData) {
+      if (!record.name) {
+        errors.push({ row: idx + 2, message: 'ไม่มีชื่อ-นามสกุล' });
+        record._error = true;
+      }
+      record._rowNum = idx + 2;
+      parsedData.push(record);
+    }
+  });
+
+  AppState.importData = parsedData;
+  AppState.importErrors = errors;
+
+  // Show preview
+  showImportPreview(parsedData, errors, headers);
+}
+
+function showImportPreview(data, errors, headers) {
+  document.getElementById('importPreview').classList.remove('hidden');
+  document.getElementById('importRowCount').textContent = data.length;
+
+  if (errors.length > 0) {
+    document.getElementById('importErrors').textContent = '⚠️ ' + errors.length + ' รายการมีปัญหา';
+  } else {
+    document.getElementById('importErrors').textContent = '';
+  }
+
+  // Preview table (show first 10 rows)
+  var previewData = data.slice(0, 10);
+  var headHtml = '<th>#</th><th>ชื่อ-นามสกุล</th><th>โรงเรียน</th><th>เลขที่</th><th>วันที่</th><th>คนลงนาม</th>';
+  document.getElementById('importPreviewHead').innerHTML = headHtml;
+
+  var bodyHtml = '';
+  previewData.forEach(function(r, idx) {
+    var rowClass = r._error ? 'error-row' : '';
+    bodyHtml += '<tr class="' + rowClass + '">' +
+      '<td>' + (idx + 1) + '</td>' +
+      '<td>' + escapeHtml(r.name || '—') + '</td>' +
+      '<td>' + escapeHtml(r.school || '—') + '</td>' +
+      '<td>' + escapeHtml(r.certNumber || '—') + '</td>' +
+      '<td>' + escapeHtml(r.date || '—') + '</td>' +
+      '<td>' + escapeHtml(r.signer || '—') + '</td>' +
+      '</tr>';
+  });
+
+  if (data.length > 10) {
+    bodyHtml += '<tr><td colspan="6" class="text-center text-muted" style="padding:8px;">... และอีก ' + (data.length - 10) + ' รายการ</td></tr>';
+  }
+
+  document.getElementById('importPreviewBody').innerHTML = bodyHtml;
+}
+
+function cancelImport() {
+  AppState.importData = null;
+  AppState.importErrors = [];
+  document.getElementById('importPreview').classList.add('hidden');
+}
+
+function confirmImport() {
+  if (!AppState.importData || AppState.importData.length === 0) {
+    showToast('ไม่มีข้อมูลสำหรับนำเข้า', 'warning');
+    return;
+  }
+
+  // Filter out error rows
+  var validData = AppState.importData.filter(function(r) { return !r._error; });
+  if (validData.length === 0) {
+    showToast('ไม่มีข้อมูลที่ถูกต้องสำหรับนำเข้า', 'error');
+    return;
+  }
+
+  var mode = document.querySelector('input[name="importMode"]:checked').value;
+
+  // Clean data
+  var cleanData = validData.map(function(r) {
+    var clean = {};
+    ['name','school','certNumber','date','signer','position',
+     'extra1','extra2','extra3','extra4','extra5'].forEach(function(f) {
+      clean[f] = r[f] || '';
+    });
+    return clean;
+  });
+
+  // Show progress
+  document.getElementById('importPreview').classList.add('hidden');
+  document.getElementById('importProgress').classList.remove('hidden');
+  document.getElementById('importPercent').textContent = '0%';
+  document.getElementById('importProgressBar').style.width = '0%';
+
+  // Animate progress
+  var progressAnim = setInterval(function() {
+    var bar = document.getElementById('importProgressBar');
+    var current = parseFloat(bar.style.width) || 0;
+    if (current < 90) {
+      bar.style.width = (current + 5) + '%';
+      document.getElementById('importPercent').textContent = Math.round(current + 5) + '%';
+    }
+  }, 200);
+
+  api.importData(JSON.stringify(cleanData), mode)
+    .then(function(result) {
+      clearInterval(progressAnim);
+      document.getElementById('importProgressBar').style.width = '100%';
+      document.getElementById('importPercent').textContent = '100%';
+
+      setTimeout(function() {
+        document.getElementById('importProgress').classList.add('hidden');
+
+        if (result && result.status) {
+          showToast(result.message, 'success');
+          hideImportSection();
+          loadData();
+          loadDashboard();
+        } else {
+          showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+        }
+      }, 500);
+    })
+    .catch(function(err) {
+      clearInterval(progressAnim);
+      document.getElementById('importProgress').classList.add('hidden');
+      showToast('นำเข้าล้มเหลว: ' + err.message, 'error');
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SETTINGS MODAL
+// ═══════════════════════════════════════════════════════════════════════
+
+function showSettingsModal() {
+  showLoading('กำลังโหลดการตั้งค่า...');
+  api.getSettings()
+    .then(function(result) {
+      hideLoading();
+      if (result && result.status) {
+        var s = result.settings;
+        document.getElementById('setNumberPrefix').value = s.number_prefix ? s.number_prefix.value : '';
+        document.getElementById('setNumberFormat').value = s.number_format ? s.number_format.value : '0000';
+        document.getElementById('setAutoNumbering').value = s.auto_numbering ? s.auto_numbering.value : 'TRUE';
+        document.getElementById('setDefaultFont').value = s.default_font ? s.default_font.value : 'TH Sarabun New';
+        document.getElementById('setOldPassword').value = '';
+        document.getElementById('setNewPassword').value = '';
+        openModal('settingsModal');
+      }
+    });
+}
+
+function saveSettings() {
+  var settings = {
+    number_prefix: document.getElementById('setNumberPrefix').value,
+    number_format: document.getElementById('setNumberFormat').value,
+    auto_numbering: document.getElementById('setAutoNumbering').value,
+    default_font: document.getElementById('setDefaultFont').value
+  };
+
+  showLoading('กำลังบันทึก...');
+  api.updateSettings(settings)
+    .then(function(result) {
+      hideLoading();
+      if (result && result.status) {
+        showToast('บันทึกการตั้งค่าสำเร็จ', 'success');
+      } else {
+        showToast(result ? result.message : 'เกิดข้อผิดพลาด', 'error');
+      }
+    });
+
+  // Change password if provided
+  var oldPass = document.getElementById('setOldPassword').value;
+  var newPass = document.getElementById('setNewPassword').value;
+  if (oldPass && newPass) {
+    api.changePassword(oldPass, newPass)
+      .then(function(result) {
+        if (result && result.status) {
+          showToast(result.message, 'success');
+          closeModal('settingsModal');
+          clearToken();
+          showLoginScreen();
+        } else {
+          showToast(result ? result.message : 'เปลี่ยนรหัสผ่านล้มเหลว', 'error');
+        }
+      });
+  } else {
+    closeModal('settingsModal');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DOWNLOAD IMPORT TEMPLATE (XLSX)
+// ═══════════════════════════════════════════════════════════════════════
+
+function downloadImportTemplate() {
+  try {
+    if (typeof XLSX === 'undefined') {
+      showToast('ไลบรารี XLSX ยังไม่โหลด กรุณารอสักครู่', 'warning');
+      return;
+    }
+
+    // สร้างข้อมูล Template
+    var headers = [
+      'ชื่อ-นามสกุล', 'โรงเรียน/หน่วยงาน', 'เลขที่เกียรติบัตร',
+      'วัน เดือน ปี', 'คนลงนาม', 'ตำแหน่ง',
+      'ข้อมูลเพิ่มเติม 1', 'ข้อมูลเพิ่มเติม 2', 'ข้อมูลเพิ่มเติม 3',
+      'ข้อมูลเพิ่มเติม 4', 'ข้อมูลเพิ่มเติม 5'
+    ];
+
+    var sampleData = [
+      ['นายทดสอบ ระบบ', 'โรงเรียนทดสอบวิทยา', '', '12 มิถุนายน 2568', 'นายผู้อำนวยการ ทดสอบ', 'ผู้อำนวยการโรงเรียน', '', '', '', '', ''],
+      ['นางสาวตัวอย่าง ข้อมูล', 'โรงเรียนตัวอย่างศึกษา', '', '12 มิถุนายน 2568', 'นายผู้อำนวยการ ทดสอบ', 'ผู้อำนวยการโรงเรียน', '', '', '', '', '']
+    ];
+
+    var data = [headers].concat(sampleData);
+
+    // สร้าง Workbook
+    var ws = XLSX.utils.aoa_to_sheet(data);
+
+    // ตั้งค่าความกว้างคอลัมน์
+    ws['!cols'] = [
+      { wch: 25 }, { wch: 25 }, { wch: 18 },
+      { wch: 22 }, { wch: 25 }, { wch: 25 },
+      { wch: 18 }, { wch: 18 }, { wch: 18 },
+      { wch: 18 }, { wch: 18 }
+    ];
+
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'รายชื่อ');
+
+    // สร้าง Sheet คำอธิบาย
+    var helpData = [
+      ['📌 คำอธิบายการใช้งาน Template นำเข้ารายชื่อ'],
+      [''],
+      ['คอลัมน์', 'คำอธิบาย', 'จำเป็น?'],
+      ['ชื่อ-นามสกุล', 'ชื่อ-นามสกุลผู้รับเกียรติบัตร', '✅ จำเป็น'],
+      ['โรงเรียน/หน่วยงาน', 'โรงเรียนหรือหน่วยงานของผู้รับ', 'ไม่บังคับ'],
+      ['เลขที่เกียรติบัตร', 'เลขที่เกียรติบัตร (ถ้าว่างจะสร้างอัตโนมัติ)', 'ไม่บังคับ'],
+      ['วัน เดือน ปี', 'วันที่ออกเกียรติบัตร เช่น 12 มิถุนายน 2568', 'ไม่บังคับ'],
+      ['คนลงนาม', 'ชื่อผู้ลงนามในเกียรติบัตร', 'ไม่บังคับ'],
+      ['ตำแหน่ง', 'ตำแหน่งของผู้ลงนาม', 'ไม่บังคับ'],
+      ['ข้อมูลเพิ่มเติม 1-5', 'ข้อมูลเพิ่มเติมตามที่กำหนด', 'ไม่บังคับ'],
+      [''],
+      ['💡 หมายเหตุ:'],
+      ['1. แถวแรก (หัวตาราง) ห้ามแก้ไข เพราะระบบใช้ในการจับคู่ข้อมูล'],
+      ['2. ลบแถวตัวอย่างออกก่อนกรอกข้อมูลจริง'],
+      ['3. รองรับไฟล์ .xlsx และ .csv'],
+      ['4. สามารถเลือก "เพิ่มต่อท้าย" หรือ "แทนที่ทั้งหมด" เมื่อนำเข้า']
+    ];
+    var ws2 = XLSX.utils.aoa_to_sheet(helpData);
+    ws2['!cols'] = [{ wch: 25 }, { wch: 50 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'คำอธิบาย');
+
+    // Download
+    XLSX.writeFile(wb, 'Template_นำเข้ารายชื่อ.xlsx');
+    showToast('ดาวน์โหลด Template Excel สำเร็จ', 'success');
+  } catch (e) {
+    showToast('ไม่สามารถสร้าง Template ได้: ' + e.message, 'error');
+  }
+}
